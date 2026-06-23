@@ -1,0 +1,7 @@
+streamlit
+openpyxl
+requests
+reportlab
+pandas
+pdfplumber
+stripe
