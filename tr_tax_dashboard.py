@@ -1,96 +1,395 @@
 """
-TR Tax Dashboard — Streamlit app (placeholder)
+tr_tax_dashboard.py
+Turkey Foreign Securities Tax Calculator — web front-end
 
-Place this file in the repository root alongside:
- - tax_tool.py
- - tr_tax_core.py
- - tr_tax_report.py
- - requirements.txt
-
-When deploying on Streamlit Community Cloud, add packages.txt (fonts-dejavu-core)
-so PDFs render Turkish characters correctly.
-
-Secrets / Stripe notes:
- - Add secrets from Streamlit dashboard (no code change needed when you add STRIPE keys)
- - If you add Stripe later, add webhook verification endpoint (small function) to confirm payment before releasing results
+FREE now. Stripe-ready: set STRIPE_SECRET_KEY and CALC_PRICE_TRY env vars to
+enable paid mode with zero code changes.
 """
 
+import io
+import os
+
 import streamlit as st
-from importlib import import_module
+import pandas as pd
 
-st.set_page_config(page_title="TR Tax Dashboard", layout="wide")
-st.title("TR Tax Dashboard (placeholder)")
+import tr_tax_core
+import tr_tax_report
 
-st.sidebar.header("App status")
-st.sidebar.info("This is a placeholder UI. Connect it to your calculation functions in tr_tax_core.py or tax_tool.py.")
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIG  (all overridable via environment variables)
+# ─────────────────────────────────────────────────────────────────────────────
+STRIPE_SECRET_KEY  = os.getenv("STRIPE_SECRET_KEY", "")          # blank  = free
+CALC_PRICE_TRY     = int(os.getenv("CALC_PRICE_TRY", "0"))       # kuruş, e.g. 49900 = ₺499
+PAID_MODE          = bool(STRIPE_SECRET_KEY)
 
-# Try to import your modules if they exist
-modules = {}
-for name in ("tr_tax_core", "tax_tool", "tr_tax_report"):
+if PAID_MODE:
+    import stripe
+    stripe.api_key = STRIPE_SECRET_KEY
+
+# ─────────────────────────────────────────────────────────────────────────────
+# i18n strings
+# ─────────────────────────────────────────────────────────────────────────────
+TR = {
+    "page_title": "Yurt Dışı Menkul Kıymet Vergi Hesaplama",
+    "page_icon": "📊",
+    "hero": "📊 Yurt Dışı Menkul Kıymet Vergi Hesaplama",
+    "hero_sub": (
+        "Yurt dışı hisse, ETF ve opsiyon işlemleriniz için 2026 Türkiye gelir vergisi tahmini. "
+        "**USD ve EUR** cinsinden varlıklar desteklenir. Sonuç **GİB Hazır Beyan** formatında üretilir."
+    ),
+    "lang_label": "🌐 Dil / Language",
+
+    "step1_head": "1️⃣ Boş çalışma kitabını indirin",
+    "step1_body": (
+        "İşlemlerinizi gireceğiniz Excel dosyasını indirin. ASSET sayfalarına "
+        "BUY/SELL satırlarınızı, OPTION sayfalarına opsiyon işlemlerinizi girin. "
+        "Kılavuz için README sayfasına bakın."
+    ),
+    "step1_btn": "⬇️ Turkey_Tax_Tracker.xlsx indir",
+
+    "step2_head": "2️⃣ Hesaplayın",
+    "step2_body": "Doldurduğunuz dosyayı yükleyin ve Hesapla butonuna basın.",
+    "evds_label": "EVDS anahtarı (Yİ-ÜFE, opsiyonel)",
+    "evds_help": "Boş bırakılırsa yerleşik Yİ-ÜFE tablosu kullanılır. evds2.tcmb.gov.tr ücretsiz.",
+    "upload_label": "Doldurulmuş Turkey_Tax_Tracker.xlsx",
+    "div_head": "Temettü girişi (opsiyonel) — 3.C Menkul Sermaye İradı",
+    "div_cap": "Yurt dışı temettüleriniz varsa ekleyin; TCMB döviz alış ile TL'ye çevrilir.",
+    "div_date": "Tarih (YYYY-AA-GG)", "div_ccy": "Döviz",
+    "div_gross": "Brüt temettü", "div_wh": "Yurt dışı stopaj", "div_exp": "Gider",
+    "calc_btn_free": "🧮 Hesapla (ücretsiz)",
+    "calc_btn_paid": f"🧮 Hesapla (₺{CALC_PRICE_TRY/100:.0f})",
+    "spinner": "TCMB kurları ve Yİ-ÜFE alınıyor, işlemler hesaplanıyor…",
+    "success": "Hesaplama tamamlandı ✅",
+    "status_label": "Durum",
+    "ufe_label": "Yİ-ÜFE kaynağı",
+    "matrah": "Matrah (vergiye esas)",
+    "tax": "2026 Gelir Vergisi",
+    "instal": "Taksitler (Mart / Temmuz)",
+    "tab_beyan": "Hazır Beyan Sistemi Özeti",
+    "tab_detail": "Yatırım İşlemleri Detaylı Raporu",
+    "3c_head": "3.C BEYAN EDİLECEK MENKUL SERMAYE İRADI GELİRLERİNİZ",
+    "3d_head": "3.D BEYAN EDİLECEK DİĞER KAZANÇ VE İRAT GELİRLERİNİZ",
+    "irat_turu": "İradın Türü", "gayrisafi_irat": "Gayrisafi İrat",
+    "indirilebilir": "İndirilecek Giderler", "safi_irat": "Safi İrat",
+    "kesilen": "Kesilen Gelir Vergisi", "kaz_turu": "Kazancın Türü",
+    "gayrisafi_tutar": "Gayrisafi Tutar", "gider_indirim": "Gider / İndirim",
+    "safi_kaz": "Safi Kazanç",
+    "col_inst": "Enstrüman", "col_date": "Tarih", "col_action": "İşlem",
+    "col_qty": "Adet", "col_price": "Fiyat", "col_tl": "TL Tutar",
+    "col_gross": "Brüt K/Z", "col_taxable": "Vergiye Esas", "col_status": "Durum",
+    "no_trades": "İşlem bulunamadı.",
+    "dl_pdf": "⬇️ Hazır Beyan PDF indir",
+    "dl_xlsx": "⬇️ İşlenmiş Excel indir",
+    "err": "Hata: ",
+    "disclaimer_head": "⚠️ Sorumluluk Reddi",
+    "disclaimer": (
+        "Bu araç yalnızca **tahmini hesaplama** amaçlıdır; resmi vergi beyannamesi değildir. "
+        "Yİ-ÜFE endekslemesi ve türev işlemler gibi sınır durumlarda hesaplamalar farklılık "
+        "gösterebilir. Beyan etmeden önce sonuçları bir **mali müşavir** ile teyit edin. "
+        "Bu araç aracılığıyla elde edilen sonuçlardan doğacak vergi cezaları veya mali "
+        "kayıplardan sorumluluk kabul edilmez."
+    ),
+    "payment_head": "💳 Ödeme",
+    "payment_body": "Hesaplama başlatmak için ödeme gerekiyor.",
+    "payment_btn": "Ödemeye git",
+}
+
+EN = {
+    "page_title": "Foreign Securities Tax Calculator — Turkey",
+    "page_icon": "📊",
+    "hero": "📊 Foreign Securities Tax Calculator — Turkey",
+    "hero_sub": (
+        "Estimate your 2026 Turkey income tax on foreign stocks, ETFs and options. "
+        "Both **USD and EUR** assets are supported. "
+        "Results are produced in **GİB Hazır Beyan** (Turkish tax return) format."
+    ),
+    "lang_label": "🌐 Dil / Language",
+
+    "step1_head": "1️⃣ Download the blank workbook",
+    "step1_body": (
+        "Download the Excel file and fill in your trades. Enter BUY/SELL rows on "
+        "ASSET sheets and option legs on OPTION sheets. See the README sheet for "
+        "instructions."
+    ),
+    "step1_btn": "⬇️ Download Turkey_Tax_Tracker.xlsx",
+
+    "step2_head": "2️⃣ Calculate",
+    "step2_body": "Upload your filled workbook and press Calculate.",
+    "evds_label": "EVDS key for Yİ-ÜFE indexation (optional)",
+    "evds_help": "Leave blank to use the built-in Yİ-ÜFE table. Free key at evds2.tcmb.gov.tr.",
+    "upload_label": "Filled Turkey_Tax_Tracker.xlsx",
+    "div_head": "Dividend input (optional) — 3.C Menkul Sermaye İradı",
+    "div_cap": "Add foreign dividends; they are converted to TL at the official TCMB rate.",
+    "div_date": "Date (YYYY-MM-DD)", "div_ccy": "Currency",
+    "div_gross": "Gross dividend", "div_wh": "Foreign withholding", "div_exp": "Expense",
+    "calc_btn_free": "🧮 Calculate (free)",
+    "calc_btn_paid": f"🧮 Calculate (₺{CALC_PRICE_TRY/100:.0f})",
+    "spinner": "Fetching TCMB rates and Yİ-ÜFE, processing stocks + options…",
+    "success": "Calculation complete ✅",
+    "status_label": "Status",
+    "ufe_label": "Yİ-ÜFE source",
+    "matrah": "Taxable base",
+    "tax": "2026 income tax",
+    "instal": "Instalments (March / July)",
+    "tab_beyan": "Hazır Beyan Summary",
+    "tab_detail": "Investment Transactions Detail",
+    "3c_head": "3.C FOREIGN DIVIDEND INCOME (Menkul Sermaye İradı)",
+    "3d_head": "3.D OTHER CAPITAL GAINS (Değer Artışı Kazancı — GVK Mük. 80/1)",
+    "irat_turu": "Income type", "gayrisafi_irat": "Gross income",
+    "indirilebilir": "Deductible expenses", "safi_irat": "Net income",
+    "kesilen": "Tax withheld", "kaz_turu": "Gain type",
+    "gayrisafi_tutar": "Gross amount", "gider_indirim": "Deduction / indexation",
+    "safi_kaz": "Net gain",
+    "col_inst": "Instrument", "col_date": "Date", "col_action": "Action",
+    "col_qty": "Qty", "col_price": "Price", "col_tl": "TL Amount",
+    "col_gross": "Gross P/L", "col_taxable": "Taxable", "col_status": "Status",
+    "no_trades": "No transactions found.",
+    "dl_pdf": "⬇️ Download Hazır Beyan PDF",
+    "dl_xlsx": "⬇️ Download processed Excel",
+    "err": "Error: ",
+    "disclaimer_head": "⚠️ Disclaimer",
+    "disclaimer": (
+        "This tool provides **estimates only** and does not constitute an official tax filing. "
+        "Edge cases — particularly Yİ-ÜFE inflation indexation and derivative instruments — may "
+        "produce figures that differ from a professional assessment. **Verify all results with a "
+        "licensed tax advisor (mali müşavir) before filing.** No liability is accepted for tax "
+        "penalties or financial losses arising from use of this tool."
+    ),
+    "payment_head": "💳 Payment",
+    "payment_body": "A payment is required to start the calculation.",
+    "payment_btn": "Go to payment",
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+def tl(x):
     try:
-        modules[name] = import_module(name)
-    except Exception as e:
-        modules[name] = None
+        return f"{float(x):,.2f} ₺"
+    except Exception:
+        return "-"
 
-col1, col2 = st.columns([2, 1])
 
-with col1:
-    st.header("Inputs")
-    # Example input fields — adapt to your real inputs
-    gross_income = st.number_input("Gross income (TRY)", min_value=0.0, value=100000.0, step=1000.0, format="%.2f")
-    deductions = st.number_input("Deductions (TRY)", min_value=0.0, value=10000.0, step=100.0, format="%.2f")
-    dependents = st.number_input("Number of dependents", min_value=0, value=0, step=1)
+@st.cache_data(show_spinner=False)
+def get_blank_workbook_bytes(lang="TR"):
+    """Build a fresh blank workbook in memory and return its bytes."""
+    import tax_tool as tt
+    wb = tt.build_blank_workbook(lang=lang)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
 
-    if st.button("Calculate"):
-        # Try to call a likely calculation function from tr_tax_core or tax_tool
-        result = None
-        tried = []
-        if modules.get("tr_tax_core"):
-            tried.append("tr_tax_core")
-            # Attempt to find a plausible function name
-            for fname in ("calculate_tax", "compute_tax", "calculate", "tax_calculation", "run"):
-                fn = getattr(modules["tr_tax_core"], fname, None)
-                if callable(fn):
-                    try:
-                        # Try calling with common signatures; if it fails, fall back to placeholder
-                        result = fn(gross_income, deductions, dependents)
-                        break
-                    except TypeError:
-                        try:
-                            result = fn({"gross_income": gross_income, "deductions": deductions, "dependents": dependents})
-                            break
-                        except Exception:
-                            continue
 
-        if result is None and modules.get("tax_tool"):
-            tried.append("tax_tool")
-            fn = getattr(modules["tax_tool"], "calculate", None) or getattr(modules["tax_tool"], "calculate_tax", None)
-            if callable(fn):
-                try:
-                    result = fn(gross_income, deductions, dependents)
-                except Exception:
-                    result = None
+def create_stripe_checkout(price_try_kurus):
+    """Create a Stripe PaymentIntent and return client_secret.
+    Raises on failure."""
+    intent = stripe.PaymentIntent.create(
+        amount=price_try_kurus,
+        currency="try",
+        automatic_payment_methods={"enabled": True},
+    )
+    return intent.client_secret
 
-        if result is None:
-            st.warning("No calculation function was found or calling it failed. See the console for details.")
-            st.info("Detected modules: " + ", ".join(f"{k}:{'yes' if v else 'no'}" for k, v in modules.items()))
-            st.write("Tip: expose a function named calculate_tax(gross_income, deductions, dependents) in tr_tax_core.py or tax_tool.py and this button will call it.")
-        else:
-            st.success("Calculation complete")
-            st.json(result)
 
-with col2:
-    st.header("Report / Export")
-    st.write("If tr_tax_report.py exposes a `generate_pdf(report_data)` or similar, call it here to build PDF reports.")
-    if modules.get("tr_tax_report"):
-        st.write("tr_tax_report.py was detected. You can wire the output of the calculation into it to produce PDFs.")
-    else:
-        st.write("tr_tax_report.py not found in repo root.")
+# ─────────────────────────────────────────────────────────────────────────────
+# Page setup
+# ─────────────────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Turkey Tax Calculator", page_icon="📊", layout="wide")
 
-st.markdown("---")
-st.markdown("Deployment notes:")
-st.markdown(
-    "- Add packages.txt with `fonts-dejavu-core` in repo root to enable DejaVu fonts on Streamlit Community Cloud for correct Turkish characters in PDFs.\n"
-    "- Deploy on share.streamlit.io, set Main file to `tr_tax_dashboard.py` and Branch to `main` (or your default branch).\n"
-    "- Add Streamlit Secrets in the app Advanced settings when ready (e.g., STRIPE_SECRET_KEY)."
+if "lang" not in st.session_state:
+    st.session_state.lang = "TR"
+
+with st.sidebar:
+    lang_choice = st.radio("🌐 Dil / Language", ["Türkçe", "English"],
+                           index=0 if st.session_state.lang == "TR" else 1,
+                           horizontal=True)
+    st.session_state.lang = "TR" if lang_choice == "Türkçe" else "EN"
+    st.divider()
+    if st.button("🔄 " + ("Sıfırla" if st.session_state.lang == "TR" else "Reset"), use_container_width=True):
+        for k in ["calc_result", "calc_beyan", "calc_detail", "calc_pdf"]:
+            st.session_state.pop(k, None)
+        st.rerun()
+
+T = TR if st.session_state.lang == "TR" else EN
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hero
+# ─────────────────────────────────────────────────────────────────────────────
+st.title(T["hero"])
+st.markdown(T["hero_sub"])
+st.divider()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 1  — download blank workbook
+# ─────────────────────────────────────────────────────────────────────────────
+st.subheader(T["step1_head"])
+st.markdown(T["step1_body"])
+blank = get_blank_workbook_bytes(lang=st.session_state.lang)
+st.download_button(
+    T["step1_btn"],
+    data=blank,
+    file_name="Turkey_Tax_Tracker.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+st.divider()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 2  — upload + calculate
+# ─────────────────────────────────────────────────────────────────────────────
+st.subheader(T["step2_head"])
+st.markdown(T["step2_body"])
+
+up = st.file_uploader(T["upload_label"], type=["xlsx"])
+
+# EVDS key is server-side only — read from Streamlit secrets or env, never shown in UI
+try:
+    evds_key = st.secrets.get("EVDS_KEY", "") or os.getenv("EVDS_KEY", "")
+except Exception:
+    evds_key = os.getenv("EVDS_KEY", "")
+
+# Paid mode: show payment notice before the button
+if PAID_MODE:
+    st.info(f"{T['payment_head']}: {T['payment_body']} — ₺{CALC_PRICE_TRY/100:.0f}")
+
+calc_label = T["calc_btn_paid"] if PAID_MODE else T["calc_btn_free"]
+go = st.button(calc_label, type="primary", disabled=(up is None))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CALCULATION  — runs on button click, results persist in session_state
+# ─────────────────────────────────────────────────────────────────────────────
+if go and up is not None:
+    # ── Payment gate (skipped when PAID_MODE is False) ──────────────────────
+    if PAID_MODE:
+        try:
+            client_secret = create_stripe_checkout(CALC_PRICE_TRY)
+            st.session_state["stripe_intent"] = client_secret
+            st.warning(
+                "⚙️ **Stripe integration point.** In production, redirect the user "
+                "to `stripe.com/checkout` here. Set `STRIPE_SECRET_KEY` and "
+                "`CALC_PRICE_TRY` env vars and plug in a success webhook to "
+                "proceed automatically after payment. Skipping payment for now."
+            )
+        except Exception as e:
+            st.error(f"Stripe error: {e}")
+            st.stop()
+
+    with st.spinner(T["spinner"]):
+        try:
+            results = tr_tax_core.calculate_from_workbook(
+                up, evds_key or None, lang=st.session_state.lang
+            )
+            beyan = tr_tax_core.build_gib_beyan(results)
+            detail = tr_tax_core.detailed_transactions(results)
+            pdf = tr_tax_report.build_beyan_pdf(beyan, detail)
+            # Store everything so downloads survive page reruns
+            st.session_state["calc_result"] = results
+            st.session_state["calc_beyan"]  = beyan
+            st.session_state["calc_detail"] = detail
+            st.session_state["calc_pdf"]    = pdf
+        except Exception as e:
+            st.error(f"{T['err']}{e}")
+            st.stop()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESULTS  — rendered from session_state so downloads never vanish
+# ─────────────────────────────────────────────────────────────────────────────
+if "calc_result" in st.session_state:
+    results = st.session_state["calc_result"]
+    beyan   = st.session_state["calc_beyan"]
+    detail  = st.session_state["calc_detail"]
+    pdf     = st.session_state["calc_pdf"]
+
+    # ── Status bar ──────────────────────────────────────────────────────────
+    badge = {
+        "FINAL from available data.": "✅",
+        "PROVISIONAL - missing YI-UFE affected at least one realised sale.": "⚠️",
+        "INCOMPLETE - do not file until the flagged rows are fixed.": "⛔",
+    }
+    b = badge.get(results["status"], "ℹ️")
+    st.success(T["success"])
+    st.caption(
+        f"{b} {T['status_label']}: {results['status']}  ·  "
+        f"{T['ufe_label']}: {results['ufe_source']}"
+    )
+
+    # ── Key metrics ─────────────────────────────────────────────────────────
+    m1, m2, m3 = st.columns(3)
+    m1.metric(T["matrah"], tl(beyan["tax_base"]))
+    m2.metric(T["tax"], tl(beyan["tax"]))
+    m3.metric(T["instal"],
+              f"{tl(beyan['instalment_1'])} + {tl(beyan['instalment_2'])}")
+
+    # ── Two-tab results ──────────────────────────────────────────────────────
+    tab1, tab2 = st.tabs([T["tab_beyan"], T["tab_detail"]])
+
+    with tab1:
+        # 3.D capital gains
+        cg = beyan["capital_gains"]
+        st.markdown(f"**{T['3d_head']}**")
+        st.table(pd.DataFrame([{
+            T["kaz_turu"]:         f"{cg['code']} — {cg['label']}",
+            T["gayrisafi_tutar"]:  tl(cg["gayrisafi"]),
+            T["gider_indirim"]:    tl(cg["gider_indirim"]),
+            T["safi_kaz"]:         tl(cg["safi"]),
+            T["kesilen"]:          tl(cg["kesilen"]),
+        }]))
+
+        # Per-instrument breakdown
+        if results["lines"]:
+            st.markdown(f"**{'Enstrüman bazında' if T is TR else 'Per instrument'}**")
+            rows = [{
+                T["col_inst"]: ln["name"],
+                "Tür" if T is TR else "Type": ln["kind"],
+                "Döviz" if T is TR else "Ccy": ln["currency"],
+                T["col_gross"]: round(ln["gross"], 2),
+                T["col_taxable"]: round(ln["taxable_raw"], 2),
+                "Flag": ln["flag"],
+            } for ln in results["lines"]]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tab2:
+        if detail:
+            tx_rows = []
+            for t in detail:
+                d = t.get("date")
+                tx_rows.append({
+                    T["col_inst"]:    t.get("asset", ""),
+                    T["col_date"]:    d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d),
+                    T["col_action"]:  t.get("type", ""),
+                    T["col_qty"]:     t.get("qty", ""),
+                    T["col_price"]:   t.get("price", ""),
+                    T["col_tl"]:      round(t["tl_amount"], 2) if t.get("tl_amount") is not None else None,
+                    T["col_gross"]:   round(t["gross"], 2) if t.get("gross") is not None else None,
+                    T["col_taxable"]: round(t["taxable"], 2) if t.get("taxable") is not None else None,
+                    T["col_status"]:  t.get("status", ""),
+                })
+            st.dataframe(pd.DataFrame(tx_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info(T["no_trades"])
+
+    # ── Warnings ─────────────────────────────────────────────────────────────
+    for w in results["warnings"]:
+        st.warning(w)
+
+    # ── Downloads — always visible once calculated ────────────────────────────
+    st.divider()
+    dc1, dc2 = st.columns(2)
+    dc1.download_button(
+        T["dl_pdf"], data=pdf,
+        file_name="Hazir_Beyan_Ozeti.pdf",
+        mime="application/pdf",
+    )
+    dc2.download_button(
+        T["dl_xlsx"],
+        data=results["workbook_bytes"],
+        file_name="Turkey_Tax_Tracker_processed.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Disclaimer  (always visible)
+# ─────────────────────────────────────────────────────────────────────────────
+st.divider()
+with st.expander(T["disclaimer_head"], expanded=False):
+    st.markdown(T["disclaimer"])
