@@ -95,9 +95,17 @@ BRACKETS_BY_YEAR = {
     ]
 }
 
-# EVDS YI-UFE series candidates. TP.TUFE1YI.T1 is kept intentionally.
+# EVDS YI-UFE series candidates. TP.TUFE1YI.T1 is the Yi-UFE (D-PPI) series.
+# NOTE: "TP.FG.J0" was previously listed as a second fallback candidate, but
+# it is actually a TUFE (CPI) series, not Yi-UFE (PPI) - if it were ever
+# reached (e.g. TP.TUFE1YI.T1 request failing outright) it would silently
+# return CPI figures mislabeled as Yi-UFE and corrupt the GVK Muk. 81
+# indexation math with no warning to the user. Removed rather than kept as
+# a "better than nothing" fallback: for a tax calculation, no data (which
+# surfaces as an explicit PROVISIONAL/INCOMPLETE status) is safer than
+# wrong data with no indication anything is off.
 EVDS_CACHE_FILE = Path(__file__).parent / ".evds_cache.json"
-EVDS_YIUFE_CANDIDATES = ["TP.TUFE1YI.T1", "TP.FG.J0"]
+EVDS_YIUFE_CANDIDATES = ["TP.TUFE1YI.T1"]
 EVDS_ENDPOINTS = [
     "https://evds2.tcmb.gov.tr/service/evds/series={series}&startDate={start}&endDate={end}&type=json",
     "https://evds3.tcmb.gov.tr/igmevdsms-dis/series={series}&startDate={start}&endDate={end}&type=json",
@@ -1031,8 +1039,22 @@ def normalize_month_key(value):
     return None
 
 
+def _is_evds_placeholder(v):
+    """EVDS marks not-yet-published / withheld observations with the literal
+    string "NA" (also seen as "N/A", "-", ".."), not null/None. Without this
+    check those rows silently vanish from the parsed map: float("NA") raises
+    ValueError, gets swallowed by the except below, and the month is dropped
+    with no trace - which looks identical to "EVDS has no data for this
+    month" even when the month IS in the response, just marked provisional."""
+    if v is None:
+        return True
+    s = str(v).strip().strip('"').upper()
+    return s in ("", "NULL", "NA", "N/A", "-", "..", "...")
+
+
 def parse_evds_items(rows, series):
     out = {}
+    skipped_placeholder = []
     series_keys = {series, series.replace(".", "_"), series.replace(".", "").upper(), series.upper()}
     for row in rows:
         if not isinstance(row, dict):
@@ -1046,15 +1068,22 @@ def parse_evds_items(rows, series):
             if k in series_keys or k.upper() in series_keys:
                 val = row.get(k)
                 break
-        if val in (None, "", "null"):
+        if _is_evds_placeholder(val):
             for k, v in row.items():
-                if k not in ("Tarih", "tarih", "DATE", "Date", "UNIXTIME") and v not in (None, "", "null"):
+                if k not in ("Tarih", "tarih", "DATE", "Date", "UNIXTIME") and not _is_evds_placeholder(v):
                     val = v
                     break
+        if _is_evds_placeholder(val):
+            skipped_placeholder.append(month_key)
+            continue
         try:
             out[month_key] = float(str(val).replace(",", "."))
         except (ValueError, TypeError):
+            skipped_placeholder.append(month_key)
             continue
+    if skipped_placeholder:
+        print(f"  EVDS {series}: {len(skipped_placeholder)} month(s) returned but not yet "
+              f"published/finalized (EVDS placeholder value) - {sorted(skipped_placeholder)}")
     return out
 
 
