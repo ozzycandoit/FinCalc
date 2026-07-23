@@ -512,7 +512,9 @@ if st.session_state.tier == "quick":
     if quick_go and quick_up is not None:
         with st.spinner(T["quick_spinner"]):
             try:
-                st.session_state["quick_result"] = tr_tax_core.calculate_turkish_taxes(quick_up)
+                st.session_state["quick_result"] = tr_tax_core.calculate_turkish_taxes(
+                    quick_up, lang=st.session_state.lang
+                )
             except Exception as e:
                 st.error(f"{T['err']}{e}")
                 st.stop()
@@ -631,12 +633,12 @@ elif st.session_state.tier == "full":
         pdf     = st.session_state["calc_pdf"]
 
         # ── Status bar ──────────────────────────────────────────────────────
-        badge = {
-            "FINAL from available data.": "✅",
-            "PROVISIONAL - missing YI-UFE affected at least one realised sale.": "⚠️",
-            "INCOMPLETE - do not file until the flagged rows are fixed.": "⛔",
-        }
-        b = badge.get(results["status"], "ℹ️")
+        # Matched on status_code (language-neutral), not the display text in
+        # results["status"] - that text is now localized (TR/EN) so matching
+        # on it directly would silently fall through to the generic icon
+        # whenever the app is running in Turkish.
+        badge = {"FINAL": "✅", "PROVISIONAL": "⚠️", "INCOMPLETE": "⛔"}
+        b = badge.get(results.get("status_code"), "ℹ️")
         st.success(T["success"])
         badge_pill(
             f"{b} {T['status_label']}: {results['status']}  ·  "

@@ -780,7 +780,8 @@ def build_transaction_view(wb, totals=None, lang="TR"):
                     "comm": num(ws_a.cell(r, 7).value),
                     "currency": currency, "rate": None, "ufe_disp": "",
                     "tl_amount": None, "gross": None, "taxable": None,
-                    "status": "input row only - run script to calculate",
+                    "status": ("sadece giriş satırı - hesaplamak için hesaplamayı çalıştırın" if lang == "TR"
+                              else "input row only - run script to calculate"),
                 })
 
     for name in option_sheet_names(wb):
@@ -808,7 +809,8 @@ def build_transaction_view(wb, totals=None, lang="TR"):
                     "comm": num(ws_o.cell(r, 7).value),
                     "currency": currency, "rate": None, "ufe_disp": "",
                     "tl_amount": None, "gross": None, "taxable": None,
-                    "status": "input row only - run script to calculate",
+                    "status": ("sadece giriş satırı - hesaplamak için hesaplamayı çalıştırın" if lang == "TR"
+                              else "input row only - run script to calculate"),
                 })
 
     # Newest first: by date desc, then by seq desc within the same date.
@@ -1612,9 +1614,12 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
         shares = t["contracts"] * mult
         if not rate and action != "EXPIRE":
             incomplete = True
-            notes.append(f"No TCMB rate for {t['date']} {currency}")
-            ws.cell(t["row"], 13).value = "missing TCMB rate - check date"
-            emit(t, None, None, None, "missing TCMB rate - check date")
+            missing_rate_status = ("TCMB kuru eksik - tarihi kontrol edin" if lang == "TR"
+                                    else "missing TCMB rate - check date")
+            notes.append((f"{t['date']} {currency} için TCMB kuru bulunamadı" if lang == "TR"
+                          else f"No TCMB rate for {t['date']} {currency}"))
+            ws.cell(t["row"], 13).value = missing_rate_status
+            emit(t, None, None, None, missing_rate_status)
             continue
 
         # ---- OPENING legs ----
@@ -1624,8 +1629,9 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
                          "unit_val": cost / shares if shares else 0.0,
                          "ufe": u, "ufe_key": ufe_key, "date": t["date"]})
             ws.cell(t["row"], 10).value = cost
-            ws.cell(t["row"], 13).value = "long opened"
-            emit(t, cost, None, None, "long opened")
+            long_opened_status = "uzun pozisyon açıldı" if lang == "TR" else "long opened"
+            ws.cell(t["row"], 13).value = long_opened_status
+            emit(t, cost, None, None, long_opened_status)
             continue
         if action == "STO":   # sell to open: short, premium received = proceeds
             credit = (t["premium"] * shares - t["comm"]) * rate
@@ -1633,8 +1639,10 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
                          "unit_val": credit / shares if shares else 0.0,
                          "ufe": None, "ufe_key": ufe_key, "date": t["date"]})
             ws.cell(t["row"], 10).value = credit
-            ws.cell(t["row"], 13).value = "short opened (premium received)"
-            emit(t, credit, None, None, "short opened (premium received)")
+            short_opened_status = ("kısa pozisyon açıldı (prim alındı)" if lang == "TR"
+                                    else "short opened (premium received)")
+            ws.cell(t["row"], 13).value = short_opened_status
+            emit(t, credit, None, None, short_opened_status)
             continue
 
         # ---- EXERCISE / ASSIGN: premium rolls into the stock, no option P&L ----
@@ -1651,11 +1659,15 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
                 if lot["shares"] <= 1e-9:
                     lots.pop(0)
             tl_info = (t["premium"] * (closed) * (rate or 0.0)) if rate else None
-            msg = (f"{action}: roll premium into ASSET sheet for "
-                   f"{underlying or 'underlying'} (not counted as option P&L)")
+            und = underlying or ("dayanak varlık" if lang == "TR" else "underlying")
+            if lang == "TR":
+                msg = f"{action}: primi {und} ASSET sayfasına aktarın (opsiyon K/Z olarak sayılmaz)"
+                notes.append(f"{t['date']} tarihli {action}: {und} hisse sayfasını elle güncelleyin")
+            else:
+                msg = f"{action}: roll premium into ASSET sheet for {und} (not counted as option P&L)"
+                notes.append(f"{action} on {t['date']}: adjust the {und} stock sheet manually")
             ws.cell(t["row"], 10).value = tl_info
             ws.cell(t["row"], 13).value = msg
-            notes.append(f"{action} on {t['date']}: adjust the {underlying or 'underlying'} stock sheet manually")
             emit(t, tl_info, None, None, msg)
             continue
 
@@ -1730,11 +1742,15 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
         ws.cell(t["row"], 11).value = leg_gross
         ws.cell(t["row"], 12).value = leg_taxable
         if action == "EXPIRE":
-            st = "expired worthless" if matched_any else "EXPIRE but nothing open"
+            if lang == "TR":
+                st = "değersiz sona erdi" if matched_any else "EXPIRE ama açık pozisyon yok"
+            else:
+                st = "expired worthless" if matched_any else "EXPIRE but nothing open"
         elif leg_missing:
-            st = f"{action} closed (provisional - missing YI-UFE)"
+            st = (f"{action} kapatıldı (taslak - Yİ-ÜFE eksik)" if lang == "TR"
+                  else f"{action} closed (provisional - missing YI-UFE)")
         else:
-            st = f"{action} closed"
+            st = f"{action} kapatıldı" if lang == "TR" else f"{action} closed"
         ws.cell(t["row"], 13).value = st
         emit(t, ws.cell(t["row"], 10).value, leg_gross, leg_taxable, st)
 
@@ -1747,16 +1763,24 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
     ws.cell(rb + 4, 7).value = net_basis
 
     if incomplete:
-        status = "INCOMPLETE - fix missing FX or over-closed contracts"
+        status_code = "INCOMPLETE"
+        status = ("EKSİK - eksik döviz kuru veya fazla kapatılmış kontratları düzeltin" if lang == "TR"
+                  else "INCOMPLETE - fix missing FX or over-closed contracts")
     elif provisional:
+        status_code = "PROVISIONAL"
         months = ", ".join(sorted(m for m in missing_index_months if m))
-        status = f"PROVISIONAL - missing YI-UFE for: {months}"
+        status = (f"TASLAK - Yİ-ÜFE eksik: {months}" if lang == "TR"
+                  else f"PROVISIONAL - missing YI-UFE for: {months}")
     elif exercise_present:
-        status = "ACTION NEEDED - exercise/assignment: adjust stock sheet"
+        status_code = "ACTION_NEEDED"
+        status = ("İŞLEM GEREKLİ - kullanım/devir: hisse sayfasını güncelleyin" if lang == "TR"
+                  else "ACTION NEEDED - exercise/assignment: adjust stock sheet")
     elif has_close:
-        status = "FINAL from available data"
+        status_code = "FINAL"
+        status = "Mevcut verilerle KESİN" if lang == "TR" else "FINAL from available data"
     else:
-        status = "No realised option results"
+        status_code = "NONE"
+        status = "Gerçekleşen opsiyon sonucu yok" if lang == "TR" else "No realised option results"
     ws.cell(rb + 5, 7).value = status
     ws.cell(rb + 5, 7).alignment = AL()
     ws.cell(rb + 5, 7).fill = fill(WARN if (incomplete or provisional or exercise_present) else POS)
@@ -1778,6 +1802,7 @@ def process_option_sheet(ws, ufe_map, lang="TR"):
         "provisional": provisional,
         "incomplete": incomplete,
         "note": " | ".join(dict.fromkeys(notes)) if notes else "",
+        "status_code": status_code,
         "is_option": True,
     }
 
@@ -1839,7 +1864,8 @@ def process_asset(ws, ufe_map, lang="TR"):
         ws.cell(t["row"], 9).value = u if u is not None else None
         if not rate:
             incomplete = True
-            notes.append(f"No TCMB rate for {t['date']} {currency}")
+            notes.append((f"{t['date']} {currency} için TCMB kuru bulunamadı" if lang == "TR"
+                          else f"No TCMB rate for {t['date']} {currency}"))
             print(f"    {t['date']} {t['type']:<4} ! no TCMB rate found")
             continue
         if t["type"] == "BUY":
@@ -1881,6 +1907,8 @@ def process_asset(ws, ufe_map, lang="TR"):
                 continue
             seq += 1
             t["seq"] = seq
+            missing_rate_status = ("TCMB kuru eksik - tarihi kontrol edin" if lang == "TR"
+                                    else "missing TCMB rate - check date")
             if not t.get("rate"):
                 tx_records.append({
                     "sheet": ws.title, "asset": asset_name, "date": t["date"],
@@ -1888,7 +1916,7 @@ def process_asset(ws, ufe_map, lang="TR"):
                     "price": t["price"], "comm": t["comm"], "currency": currency,
                     "rate": None, "ufe_disp": ufe_disp_for(t), "tl_amount": None,
                     "gross": None, "taxable": None,
-                    "status": "missing TCMB rate - check date",
+                    "status": missing_rate_status,
                 })
                 continue
             unit_cost = t["tl_cost"] / t["qty"] if t["qty"] else 0.0
@@ -1903,7 +1931,7 @@ def process_asset(ws, ufe_map, lang="TR"):
                 "rate": t.get("rate"), "ufe_disp": ufe_disp_for(t),
                 "tl_amount": t["tl_cost"],
                 "gross": None, "taxable": None,
-                "status": "buy lot recorded",
+                "status": "alım lotu kaydedildi" if lang == "TR" else "buy lot recorded",
             })
 
         # STRICT FIFO: today's buys join the main pool now (as the newest lots,
@@ -1928,7 +1956,8 @@ def process_asset(ws, ufe_map, lang="TR"):
                     "price": t["price"], "comm": t["comm"], "currency": currency,
                     "rate": None, "ufe_disp": ufe_disp_for(t), "tl_amount": None,
                     "gross": None, "taxable": None,
-                    "status": "missing TCMB rate - check date",
+                    "status": ("TCMB kuru eksik - tarihi kontrol edin" if lang == "TR"
+                              else "missing TCMB rate - check date"),
                 })
                 continue
 
@@ -1958,7 +1987,8 @@ def process_asset(ws, ufe_map, lang="TR"):
             oversold = remaining > 1e-9
             if oversold:
                 incomplete = True
-                notes.append(f"SELL on {t['date']} exceeds available BUY lots by {remaining:g} shares")
+                notes.append((f"{t['date']} tarihli SATIM, mevcut ALIM lotlarını {remaining:g} adet aşıyor" if lang == "TR"
+                              else f"SELL on {t['date']} exceeds available BUY lots by {remaining:g} shares"))
 
             proceeds = t.get("tl_proceeds", 0.0)
             gross = proceeds - matched_cost
@@ -1972,14 +2002,24 @@ def process_asset(ws, ufe_map, lang="TR"):
             ws.cell(t["row"], 13).value = gross
             ws.cell(t["row"], 14).value = taxable
 
-            if oversold:
-                sell_status = "SELL exceeds available lots"
-            elif sell_missing_index:
-                sell_status = "SELL calculated (provisional - missing YI-UFE)"
-            elif used_sameday > 1e-9:
-                sell_status = f"SELL calculated (same-day matched {used_sameday:g})"
+            if lang == "TR":
+                if oversold:
+                    sell_status = "SATIM mevcut lotları aşıyor"
+                elif sell_missing_index:
+                    sell_status = "SATIM hesaplandı (taslak - Yİ-ÜFE eksik)"
+                elif used_sameday > 1e-9:
+                    sell_status = f"SATIM hesaplandı (aynı gün eşleşen {used_sameday:g})"
+                else:
+                    sell_status = "SATIM hesaplandı"
             else:
-                sell_status = "SELL calculated"
+                if oversold:
+                    sell_status = "SELL exceeds available lots"
+                elif sell_missing_index:
+                    sell_status = "SELL calculated (provisional - missing YI-UFE)"
+                elif used_sameday > 1e-9:
+                    sell_status = f"SELL calculated (same-day matched {used_sameday:g})"
+                else:
+                    sell_status = "SELL calculated"
             tx_records.append({
                 "sheet": ws.title, "asset": asset_name, "date": t["date"],
                 "seq": seq, "type": "SELL", "qty": t["qty"],
@@ -2008,17 +2048,26 @@ def process_asset(ws, ufe_map, lang="TR"):
     ws.cell(rb + 4, 7).value = open_cost
 
     if incomplete:
-        status = "INCOMPLETE - fix missing FX or unmatched sells"
+        status_code = "INCOMPLETE"
+        status = ("EKSİK - eksik döviz kuru veya eşleşmemiş satışları düzeltin" if lang == "TR"
+                  else "INCOMPLETE - fix missing FX or unmatched sells")
     elif provisional:
+        status_code = "PROVISIONAL"
         months = ", ".join(sorted(m for m in missing_index_months if m))
-        status = f"PROVISIONAL - missing YI-UFE for realised sale months: {months}"
+        status = (f"TASLAK - gerçekleşen satış ayları için Yİ-ÜFE eksik: {months}" if lang == "TR"
+                  else f"PROVISIONAL - missing YI-UFE for realised sale months: {months}")
         notes.append(status)
     elif has_sales:
-        status = "FINAL from available data"
+        status_code = "FINAL"
+        status = "Mevcut verilerle KESİN" if lang == "TR" else "FINAL from available data"
     else:
-        status = "No realised sales"
+        status_code = "NONE"
+        status = "Gerçekleşen satış yok" if lang == "TR" else "No realised sales"
     if open_lot_missing_ufe and not provisional:
-        notes.append("Open lots have missing YI-UFE months for future sales: " + ", ".join(sorted(open_lot_missing_ufe)))
+        notes.append(
+            ("Gelecekteki satışlar için açık lotlarda Yİ-ÜFE eksik olan aylar: " if lang == "TR"
+             else "Open lots have missing YI-UFE months for future sales: ")
+            + ", ".join(sorted(open_lot_missing_ufe)))
     ws.cell(rb + 5, 7).value = status
     ws.cell(rb + 5, 7).alignment = AL()
     ws.cell(rb + 5, 7).fill = fill(WARN if (incomplete or provisional) else POS)
@@ -2042,6 +2091,7 @@ def process_asset(ws, ufe_map, lang="TR"):
         "provisional": provisional,
         "incomplete": incomplete,
         "note": " | ".join(dict.fromkeys(notes)) if notes else "",
+        "status_code": status_code,
     }
 
 
@@ -2092,7 +2142,10 @@ def run_calculation(wb, evds_key=None, lang="TR"):
         build_dividend_guide_sheet(wb)
 
     ufe_map = evds_ufe_cached(evds_key) or UFE_TABLE
-    ufe_source = "EVDS" if ufe_map is not UFE_TABLE else "built-in UFE_TABLE"
+    if ufe_map is not UFE_TABLE:
+        ufe_source = "EVDS"
+    else:
+        ufe_source = "yerleşik Yİ-ÜFE tablosu" if lang == "TR" else "built-in UFE_TABLE"
 
     totals = {}
     for name in asset_sheet_names(wb):
@@ -2110,28 +2163,39 @@ def run_calculation(wb, evds_key=None, lang="TR"):
     incomplete = any(d.get("incomplete") for d in totals.values())
     provisional = any(d.get("provisional") for d in totals.values())
     if incomplete:
-        status = "INCOMPLETE - do not file until the flagged rows are fixed."
+        status_code = "INCOMPLETE"
+        status = ("EKSİK - işaretli satırlar düzeltilene kadar beyan etmeyin." if lang == "TR"
+                  else "INCOMPLETE - do not file until the flagged rows are fixed.")
     elif provisional:
-        status = "PROVISIONAL - missing YI-UFE affected at least one realised sale."
+        status_code = "PROVISIONAL"
+        status = ("TASLAK - eksik Yİ-ÜFE, gerçekleşen en az bir satışı etkiledi." if lang == "TR"
+                  else "PROVISIONAL - missing YI-UFE affected at least one realised sale.")
     else:
-        status = "FINAL from available data."
+        status_code = "FINAL"
+        status = "Mevcut verilerle KESİN." if lang == "TR" else "FINAL from available data."
 
     # Flat per-instrument lines for display.
     lines = []
     for name in asset_sheet_names(wb) + option_sheet_names(wb):
         d = totals.get(name, {})
+        if d.get("is_option"):
+            kind = "Opsiyon" if lang == "TR" else "Option"
+        else:
+            kind = "Hisse/ETF" if lang == "TR" else "Stock/ETF"
+        flag_code = ("INCOMPLETE" if d.get("incomplete")
+                     else "PROVISIONAL" if d.get("provisional") else "OK")
         lines.append({
             "sheet": name,
             "name": d.get("display_name", name),
-            "kind": "Option" if d.get("is_option") else "Stock/ETF",
+            "kind": kind,
             "currency": d.get("currency", ""),
             "gross": d.get("gross", 0.0),
             "taxable_raw": d.get("taxable_raw", 0.0),
             "open_qty": d.get("open_qty", 0.0),
             "open_cost": d.get("open_cost", 0.0),
             "note": d.get("note", ""),
-            "flag": ("INCOMPLETE" if d.get("incomplete")
-                     else "PROVISIONAL" if d.get("provisional") else "OK"),
+            "flag": flag_code,
+            "status_code": d.get("status_code", flag_code),
         })
 
     warnings = [f"{ln['name']}: {ln['note']}" for ln in lines if ln["note"]]
@@ -2145,6 +2209,7 @@ def run_calculation(wb, evds_key=None, lang="TR"):
         "instalment_1": tax / 2.0,
         "instalment_2": tax / 2.0,
         "status": status,
+        "status_code": status_code,
         "incomplete": incomplete,
         "provisional": provisional,
         "ufe_source": ufe_source,

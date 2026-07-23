@@ -416,10 +416,12 @@ def build_quick_template_bytes(lang="TR"):
     return buf.getvalue()
 
 
-def calculate_turkish_taxes(uploaded_file):
+def calculate_turkish_taxes(uploaded_file, lang="TR"):
     """Quick per-asset FIFO on a flat statement. Columns:
     Date | Asset | Action(BUY/SELL) | Quantity | Price | [Currency] | [Commission]
-    Header row optional (auto-detected). No Yi-UFE indexation, no options."""
+    Header row optional (auto-detected). No Yi-UFE indexation, no options.
+    `lang` only affects the status/warning text returned - it does not change
+    the calculation, so results are identical in TR and EN."""
     wb = load_workbook(uploaded_file, data_only=True)
     sheet = wb.active
 
@@ -439,7 +441,8 @@ def calculate_turkish_taxes(uploaded_file):
             continue
         trade_date = parse_flexible_date(row[0])
         if trade_date is None:
-            warnings.append(f"Skipped a row with an unreadable date: {row[0]!r}")
+            warnings.append((f"Okunamayan tarihli bir satır atlandı: {row[0]!r}" if lang == "TR"
+                             else f"Skipped a row with an unreadable date: {row[0]!r}"))
             continue
         asset = (str(row[1]).strip().upper() if len(row) > 1 and row[1] else "UNKNOWN")
         action = (str(row[2]).strip().upper() if len(row) > 2 and row[2] else "")
@@ -462,7 +465,9 @@ def calculate_turkish_taxes(uploaded_file):
             rate_cache[ck] = get_tcmb_rate(trade_date, currency)
         rate, _u = rate_cache[ck]
         if rate is None:
-            warnings.append(f"No TCMB {currency} rate near {trade_date.date()} - {asset} row excluded.")
+            warnings.append((f"{trade_date.date()} yakınında {currency} için TCMB kuru yok - {asset} satırı hariç tutuldu."
+                             if lang == "TR" else
+                             f"No TCMB {currency} rate near {trade_date.date()} - {asset} row excluded."))
             continue
         trades.append({"date": trade_date, "asset": asset, "action": action,
                        "qty": qty, "price": price, "commission": commission,
@@ -488,14 +493,22 @@ def calculate_turkish_taxes(uploaded_file):
                 if lot["qty"] <= 1e-9:
                     q.pop(0)
             if rem > 1e-9:
-                warnings.append(f"{t['asset']}: SELL on {t['date'].date()} exceeds available BUY lots by {rem:g}.")
+                warnings.append(
+                    (f"{t['asset']}: {t['date'].date()} tarihli SATIM, mevcut ALIM lotlarını {rem:g} aşıyor."
+                     if lang == "TR" else
+                     f"{t['asset']}: SELL on {t['date'].date()} exceeds available BUY lots by {rem:g}."))
 
     base = max(0.0, total_gain_tl)
     tax = income_tax_2026(base)
+    if lang == "TR":
+        status = "Başarılı" if not warnings else "Uyarılarla tamamlandı"
+    else:
+        status = "Success" if not warnings else "Completed with warnings"
     return {
         "total_gains": base, "raw_result": total_gain_tl,
         "estimated_tax": tax, "instalment_1": tax / 2.0, "instalment_2": tax / 2.0,
         "trades_processed": len(trades), "indexation_applied": False,
         "warnings": warnings,
-        "status": "Success" if not warnings else "Completed with warnings",
+        "status": status,
+        "status_code": "OK" if not warnings else "WARNINGS",
     }
