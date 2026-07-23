@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.evds_cache.json
+.streamlit/secrets.toml
