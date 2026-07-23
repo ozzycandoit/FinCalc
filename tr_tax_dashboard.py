@@ -429,7 +429,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 " + ("Sıfırla" if st.session_state.lang == "TR" else "Reset"), use_container_width=True):
         for k in ["calc_result", "calc_beyan", "calc_detail", "calc_pdf",
-                  "quick_result", "tier"]:
+                  "quick_result", "tier", "quick_step", "full_step"]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -487,62 +487,77 @@ st.divider()
 if st.session_state.tier == "quick":
     st.header(T["quick_title"])
 
-    _quick_step_labels = ["Şablon", "Hesapla", "Sonuç"] if T is TR else ["Template", "Calculate", "Result"]
-    _quick_idx = 2 if "quick_result" in st.session_state else (1 if st.session_state.get("quick_uploader") is not None else 0)
-    step_indicator(_quick_step_labels, _quick_idx)
+    if "quick_step" not in st.session_state:
+        st.session_state.quick_step = 0
 
-    eyebrow(("ADIM 1 / 2" if T is TR else "STEP 1 OF 2"))
-    st.subheader(T["quick_step1_head"])
-    st.markdown(T["quick_step1_body"])
-    quick_blank = get_quick_template_bytes(lang=st.session_state.lang)
-    st.download_button(
-        T["quick_step1_btn"],
-        data=quick_blank,
-        file_name="Quick_Check_Template.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    st.divider()
+    _quick_step_labels = ["Şablon", "Hesapla"] if T is TR else ["Template", "Calculate"]
+    step_indicator(_quick_step_labels, st.session_state.quick_step)
 
-    eyebrow(("ADIM 2 / 2" if T is TR else "STEP 2 OF 2"))
-    st.subheader(T["quick_step2_head"])
-    st.markdown(T["quick_step2_body"])
-    quick_up = st.file_uploader(T["quick_upload_label"], type=["xlsx"], key="quick_uploader")
-    quick_go = st.button(T["quick_calc_btn"], type="primary", disabled=(quick_up is None))
+    # ── STEP 1 OF 2 — download the blank template ───────────────────────────
+    if st.session_state.quick_step == 0:
+        eyebrow(("ADIM 1 / 2" if T is TR else "STEP 1 OF 2"))
+        st.subheader(T["quick_step1_head"])
+        st.markdown(T["quick_step1_body"])
+        quick_blank = get_quick_template_bytes(lang=st.session_state.lang)
+        st.download_button(
+            T["quick_step1_btn"],
+            data=quick_blank,
+            file_name="Quick_Check_Template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        st.write("")
+        if st.button(("Devam →" if T is TR else "Continue →"), type="primary"):
+            st.session_state.quick_step = 1
+            st.rerun()
 
-    if quick_go and quick_up is not None:
-        with st.spinner(T["quick_spinner"]):
-            try:
-                st.session_state["quick_result"] = tr_tax_core.calculate_turkish_taxes(
-                    quick_up, lang=st.session_state.lang
-                )
-            except Exception as e:
-                st.error(f"{T['err']}{e}")
-                st.stop()
+    # ── STEP 2 OF 2 — upload, calculate, and see the result ─────────────────
+    elif st.session_state.quick_step == 1:
+        if st.button(("‹ Şablon adımına dön" if T is TR else "‹ Back to template")):
+            st.session_state.quick_step = 0
+            st.rerun()
 
-    if "quick_result" in st.session_state:
-        qr = st.session_state["quick_result"]
-        st.success(T["quick_success"])
-        badge_pill(f"{T['status_label']}: {qr['status']}")
+        eyebrow(("ADIM 2 / 2" if T is TR else "STEP 2 OF 2"))
+        st.subheader(T["quick_step2_head"])
+        st.markdown(T["quick_step2_body"])
+        quick_up = st.file_uploader(T["quick_upload_label"], type=["xlsx"], key="quick_uploader")
+        quick_go = st.button(T["quick_calc_btn"], type="primary", disabled=(quick_up is None))
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric(T["quick_gain"], tl(qr["total_gains"]))
-        m2.metric(T["quick_tax"], tl(qr["estimated_tax"]))
-        m3.metric(T["quick_instal"],
-                  f"{tl(qr['instalment_1'])} + {tl(qr['instalment_2'])}")
-        st.caption(f"{T['quick_trades']}: {qr['trades_processed']}")
+        if quick_go and quick_up is not None:
+            with st.spinner(T["quick_spinner"]):
+                try:
+                    st.session_state["quick_result"] = tr_tax_core.calculate_turkish_taxes(
+                        quick_up, lang=st.session_state.lang
+                    )
+                except Exception as e:
+                    st.error(f"{T['err']}{e}")
+                    st.stop()
 
-        for w in qr.get("warnings", []):
-            st.warning(w)
+        if "quick_result" in st.session_state:
+            qr = st.session_state["quick_result"]
+            st.divider()
+            st.success(T["quick_success"])
+            badge_pill(f"{T['status_label']}: {qr['status']}")
 
-        st.divider()
-        with st.container(border=True):
-            st.markdown(f"**{T['quick_upgrade_head']}**")
-            st.write(T["quick_upgrade_body"])
-            if st.button(T["quick_upgrade_btn"], type="primary"):
-                st.session_state.tier = "full"
-                for k in ["quick_result"]:
-                    st.session_state.pop(k, None)
-                st.rerun()
+            m1, m2, m3 = st.columns(3)
+            m1.metric(T["quick_gain"], tl(qr["total_gains"]))
+            m2.metric(T["quick_tax"], tl(qr["estimated_tax"]))
+            m3.metric(T["quick_instal"],
+                      f"{tl(qr['instalment_1'])} + {tl(qr['instalment_2'])}")
+            st.caption(f"{T['quick_trades']}: {qr['trades_processed']}")
+
+            for w in qr.get("warnings", []):
+                st.warning(w)
+
+            st.divider()
+            with st.container(border=True):
+                st.markdown(f"**{T['quick_upgrade_head']}**")
+                st.write(T["quick_upgrade_body"])
+                if st.button(T["quick_upgrade_btn"], type="primary"):
+                    st.session_state.tier = "full"
+                    st.session_state.full_step = 0
+                    for k in ["quick_result"]:
+                        st.session_state.pop(k, None)
+                    st.rerun()
 
     st.divider()
     with st.expander(T["disclaimer_head"], expanded=False):
@@ -554,170 +569,183 @@ if st.session_state.tier == "quick":
 elif st.session_state.tier == "full":
     st.header(T["tier_full_title"])
 
-    _full_step_labels = ["Şablon", "Hesapla", "Sonuç"] if T is TR else ["Template", "Calculate", "Result"]
-    _full_idx = 2 if "calc_result" in st.session_state else (1 if st.session_state.get("full_uploader") is not None else 0)
-    step_indicator(_full_step_labels, _full_idx)
+    if "full_step" not in st.session_state:
+        st.session_state.full_step = 0
 
-    # ── STEP 1 — download blank workbook ────────────────────────────────────
-    eyebrow(("ADIM 1 / 2" if T is TR else "STEP 1 OF 2"))
-    st.subheader(T["step1_head"])
-    st.markdown(T["step1_body"])
-    blank = get_blank_workbook_bytes(lang=st.session_state.lang)
-    st.download_button(
-        T["step1_btn"],
-        data=blank,
-        file_name="Turkey_Tax_Tracker.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    st.divider()
+    _full_step_labels = ["Şablon", "Hesapla"] if T is TR else ["Template", "Calculate"]
+    step_indicator(_full_step_labels, st.session_state.full_step)
 
-    # ── STEP 2 — upload + calculate ─────────────────────────────────────────
-    eyebrow(("ADIM 2 / 2" if T is TR else "STEP 2 OF 2"))
-    st.subheader(T["step2_head"])
-    st.markdown(T["step2_body"])
-
-    up = st.file_uploader(T["upload_label"], type=["xlsx"], key="full_uploader")
-
-    # EVDS key is server-side only — read from Streamlit secrets or env, never shown in UI
-    try:
-        evds_key = st.secrets.get("EVDS_KEY", "") or os.getenv("EVDS_KEY", "")
-    except Exception:
-        evds_key = os.getenv("EVDS_KEY", "")
-
-    # Paid mode: show payment notice before the button
-    if PAID_MODE:
-        st.info(f"{T['payment_head']}: {T['payment_body']} — ₺{CALC_PRICE_TRY/100:.0f}")
-
-    calc_label = T["calc_btn_paid"] if PAID_MODE else T["calc_btn_free"]
-    go = st.button(calc_label, type="primary", disabled=(up is None))
-
-    # ── CALCULATION  — runs on button click, results persist in session_state
-    if go and up is not None:
-        # ── Payment gate (skipped when PAID_MODE is False) ──────────────────
-        if PAID_MODE:
-            try:
-                client_secret = create_stripe_checkout(CALC_PRICE_TRY)
-                st.session_state["stripe_intent"] = client_secret
-                st.warning(
-                    "⚙️ **Stripe integration point.** In production, redirect the user "
-                    "to `stripe.com/checkout` here. Set `STRIPE_SECRET_KEY` and "
-                    "`CALC_PRICE_TRY` env vars and plug in a success webhook to "
-                    "proceed automatically after payment. Skipping payment for now."
-                )
-            except Exception as e:
-                st.error(f"Stripe error: {e}")
-                st.stop()
-
-        with st.spinner(T["spinner"]):
-            try:
-                results = tr_tax_core.calculate_from_workbook(
-                    up, evds_key or None, lang=st.session_state.lang
-                )
-                beyan = tr_tax_core.build_gib_beyan(results)
-                detail = tr_tax_core.detailed_transactions(results)
-                pdf = tr_tax_report.build_beyan_pdf(beyan, detail)
-                # Store everything so downloads survive page reruns
-                st.session_state["calc_result"] = results
-                st.session_state["calc_beyan"]  = beyan
-                st.session_state["calc_detail"] = detail
-                st.session_state["calc_pdf"]    = pdf
-            except Exception as e:
-                st.error(f"{T['err']}{e}")
-                st.stop()
-
-    # ── RESULTS  — rendered from session_state so downloads never vanish ────
-    if "calc_result" in st.session_state:
-        results = st.session_state["calc_result"]
-        beyan   = st.session_state["calc_beyan"]
-        detail  = st.session_state["calc_detail"]
-        pdf     = st.session_state["calc_pdf"]
-
-        # ── Status bar ──────────────────────────────────────────────────────
-        # Matched on status_code (language-neutral), not the display text in
-        # results["status"] - that text is now localized (TR/EN) so matching
-        # on it directly would silently fall through to the generic icon
-        # whenever the app is running in Turkish.
-        badge = {"FINAL": "✅", "PROVISIONAL": "⚠️", "INCOMPLETE": "⛔"}
-        b = badge.get(results.get("status_code"), "ℹ️")
-        st.success(T["success"])
-        badge_pill(
-            f"{b} {T['status_label']}: {results['status']}  ·  "
-            f"{T['ufe_label']}: {results['ufe_source']}"
-        )
-
-        # ── Key metrics ─────────────────────────────────────────────────────
-        m1, m2, m3 = st.columns(3)
-        m1.metric(T["matrah"], tl(beyan["tax_base"]))
-        m2.metric(T["tax"], tl(beyan["tax"]))
-        m3.metric(T["instal"],
-                  f"{tl(beyan['instalment_1'])} + {tl(beyan['instalment_2'])}")
-
-        # ── Two-tab results ──────────────────────────────────────────────────
-        tab1, tab2 = st.tabs([T["tab_beyan"], T["tab_detail"]])
-
-        with tab1:
-            # 3.D capital gains
-            cg = beyan["capital_gains"]
-            st.markdown(f"**{T['3d_head']}**")
-            st.table(pd.DataFrame([{
-                T["kaz_turu"]:         f"{cg['code']} — {cg['label']}",
-                T["gayrisafi_tutar"]:  tl(cg["gayrisafi"]),
-                T["gider_indirim"]:    tl(cg["gider_indirim"]),
-                T["safi_kaz"]:         tl(cg["safi"]),
-                T["kesilen"]:          tl(cg["kesilen"]),
-            }]))
-
-            # Per-instrument breakdown
-            if results["lines"]:
-                st.markdown(f"**{'Enstrüman bazında' if T is TR else 'Per instrument'}**")
-                rows = [{
-                    T["col_inst"]: ln["name"],
-                    "Tür" if T is TR else "Type": ln["kind"],
-                    "Döviz" if T is TR else "Ccy": ln["currency"],
-                    T["col_gross"]: round(ln["gross"], 2),
-                    T["col_taxable"]: round(ln["taxable_raw"], 2),
-                    "Flag": ln["flag"],
-                } for ln in results["lines"]]
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-        with tab2:
-            if detail:
-                tx_rows = []
-                for t in detail:
-                    d = t.get("date")
-                    tx_rows.append({
-                        T["col_inst"]:    t.get("asset", ""),
-                        T["col_date"]:    d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d),
-                        T["col_action"]:  t.get("type", ""),
-                        T["col_qty"]:     t.get("qty", ""),
-                        T["col_price"]:   t.get("price", ""),
-                        T["col_tl"]:      round(t["tl_amount"], 2) if t.get("tl_amount") is not None else None,
-                        T["col_gross"]:   round(t["gross"], 2) if t.get("gross") is not None else None,
-                        T["col_taxable"]: round(t["taxable"], 2) if t.get("taxable") is not None else None,
-                        T["col_status"]:  t.get("status", ""),
-                    })
-                st.dataframe(pd.DataFrame(tx_rows), use_container_width=True, hide_index=True)
-            else:
-                st.info(T["no_trades"])
-
-        # ── Warnings ─────────────────────────────────────────────────────────
-        for w in results["warnings"]:
-            st.warning(w)
-
-        # ── Downloads — always visible once calculated ────────────────────────
-        st.divider()
-        dc1, dc2 = st.columns(2)
-        dc1.download_button(
-            T["dl_pdf"], data=pdf,
-            file_name="Hazir_Beyan_Ozeti.pdf",
-            mime="application/pdf",
-        )
-        dc2.download_button(
-            T["dl_xlsx"],
-            data=results["workbook_bytes"],
-            file_name="Turkey_Tax_Tracker_processed.xlsx",
+    # ── STEP 1 OF 2 — download the blank workbook ───────────────────────────
+    if st.session_state.full_step == 0:
+        eyebrow(("ADIM 1 / 2" if T is TR else "STEP 1 OF 2"))
+        st.subheader(T["step1_head"])
+        st.markdown(T["step1_body"])
+        blank = get_blank_workbook_bytes(lang=st.session_state.lang)
+        st.download_button(
+            T["step1_btn"],
+            data=blank,
+            file_name="Turkey_Tax_Tracker.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+        st.write("")
+        if st.button(("Devam →" if T is TR else "Continue →"), type="primary"):
+            st.session_state.full_step = 1
+            st.rerun()
+
+    # ── STEP 2 OF 2 — upload, calculate, and see the result ─────────────────
+    elif st.session_state.full_step == 1:
+        if st.button(("‹ Şablon adımına dön" if T is TR else "‹ Back to template")):
+            st.session_state.full_step = 0
+            st.rerun()
+
+        eyebrow(("ADIM 2 / 2" if T is TR else "STEP 2 OF 2"))
+        st.subheader(T["step2_head"])
+        st.markdown(T["step2_body"])
+
+        up = st.file_uploader(T["upload_label"], type=["xlsx"], key="full_uploader")
+
+        # EVDS key is server-side only — read from Streamlit secrets or env, never shown in UI
+        try:
+            evds_key = st.secrets.get("EVDS_KEY", "") or os.getenv("EVDS_KEY", "")
+        except Exception:
+            evds_key = os.getenv("EVDS_KEY", "")
+
+        # Paid mode: show payment notice before the button
+        if PAID_MODE:
+            st.info(f"{T['payment_head']}: {T['payment_body']} — ₺{CALC_PRICE_TRY/100:.0f}")
+
+        calc_label = T["calc_btn_paid"] if PAID_MODE else T["calc_btn_free"]
+        go = st.button(calc_label, type="primary", disabled=(up is None))
+
+        # ── CALCULATION  — runs on button click, results persist in session_state
+        if go and up is not None:
+            # ── Payment gate (skipped when PAID_MODE is False) ──────────────
+            if PAID_MODE:
+                try:
+                    client_secret = create_stripe_checkout(CALC_PRICE_TRY)
+                    st.session_state["stripe_intent"] = client_secret
+                    st.warning(
+                        "⚙️ **Stripe integration point.** In production, redirect the user "
+                        "to `stripe.com/checkout` here. Set `STRIPE_SECRET_KEY` and "
+                        "`CALC_PRICE_TRY` env vars and plug in a success webhook to "
+                        "proceed automatically after payment. Skipping payment for now."
+                    )
+                except Exception as e:
+                    st.error(f"Stripe error: {e}")
+                    st.stop()
+
+            with st.spinner(T["spinner"]):
+                try:
+                    results = tr_tax_core.calculate_from_workbook(
+                        up, evds_key or None, lang=st.session_state.lang
+                    )
+                    beyan = tr_tax_core.build_gib_beyan(results)
+                    detail = tr_tax_core.detailed_transactions(results)
+                    pdf = tr_tax_report.build_beyan_pdf(beyan, detail)
+                    # Store everything so downloads survive page reruns
+                    st.session_state["calc_result"] = results
+                    st.session_state["calc_beyan"]  = beyan
+                    st.session_state["calc_detail"] = detail
+                    st.session_state["calc_pdf"]    = pdf
+                except Exception as e:
+                    st.error(f"{T['err']}{e}")
+                    st.stop()
+
+        # ── RESULTS  — rendered from session_state so downloads never vanish ─
+        if "calc_result" in st.session_state:
+            results = st.session_state["calc_result"]
+            beyan   = st.session_state["calc_beyan"]
+            detail  = st.session_state["calc_detail"]
+            pdf     = st.session_state["calc_pdf"]
+
+            st.divider()
+
+            # ── Status bar ────────────────────────────────────────────────
+            # Matched on status_code (language-neutral), not the display text
+            # in results["status"] - that text is now localized (TR/EN) so
+            # matching on it directly would silently fall through to the
+            # generic icon whenever the app is running in Turkish.
+            badge = {"FINAL": "✅", "PROVISIONAL": "⚠️", "INCOMPLETE": "⛔"}
+            b = badge.get(results.get("status_code"), "ℹ️")
+            st.success(T["success"])
+            badge_pill(
+                f"{b} {T['status_label']}: {results['status']}  ·  "
+                f"{T['ufe_label']}: {results['ufe_source']}"
+            )
+
+            # ── Key metrics ───────────────────────────────────────────────
+            m1, m2, m3 = st.columns(3)
+            m1.metric(T["matrah"], tl(beyan["tax_base"]))
+            m2.metric(T["tax"], tl(beyan["tax"]))
+            m3.metric(T["instal"],
+                      f"{tl(beyan['instalment_1'])} + {tl(beyan['instalment_2'])}")
+
+            # ── Two-tab results ──────────────────────────────────────────────
+            tab1, tab2 = st.tabs([T["tab_beyan"], T["tab_detail"]])
+
+            with tab1:
+                # 3.D capital gains
+                cg = beyan["capital_gains"]
+                st.markdown(f"**{T['3d_head']}**")
+                st.table(pd.DataFrame([{
+                    T["kaz_turu"]:         f"{cg['code']} — {cg['label']}",
+                    T["gayrisafi_tutar"]:  tl(cg["gayrisafi"]),
+                    T["gider_indirim"]:    tl(cg["gider_indirim"]),
+                    T["safi_kaz"]:         tl(cg["safi"]),
+                    T["kesilen"]:          tl(cg["kesilen"]),
+                }]))
+
+                # Per-instrument breakdown
+                if results["lines"]:
+                    st.markdown(f"**{'Enstrüman bazında' if T is TR else 'Per instrument'}**")
+                    rows = [{
+                        T["col_inst"]: ln["name"],
+                        "Tür" if T is TR else "Type": ln["kind"],
+                        "Döviz" if T is TR else "Ccy": ln["currency"],
+                        T["col_gross"]: round(ln["gross"], 2),
+                        T["col_taxable"]: round(ln["taxable_raw"], 2),
+                        "Flag": ln["flag"],
+                    } for ln in results["lines"]]
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+            with tab2:
+                if detail:
+                    tx_rows = []
+                    for t in detail:
+                        d = t.get("date")
+                        tx_rows.append({
+                            T["col_inst"]:    t.get("asset", ""),
+                            T["col_date"]:    d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d),
+                            T["col_action"]:  t.get("type", ""),
+                            T["col_qty"]:     t.get("qty", ""),
+                            T["col_price"]:   t.get("price", ""),
+                            T["col_tl"]:      round(t["tl_amount"], 2) if t.get("tl_amount") is not None else None,
+                            T["col_gross"]:   round(t["gross"], 2) if t.get("gross") is not None else None,
+                            T["col_taxable"]: round(t["taxable"], 2) if t.get("taxable") is not None else None,
+                            T["col_status"]:  t.get("status", ""),
+                        })
+                    st.dataframe(pd.DataFrame(tx_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info(T["no_trades"])
+
+            # ── Warnings ─────────────────────────────────────────────────────
+            for w in results["warnings"]:
+                st.warning(w)
+
+            # ── Downloads — always visible once calculated ────────────────────
+            st.divider()
+            dc1, dc2 = st.columns(2)
+            dc1.download_button(
+                T["dl_pdf"], data=pdf,
+                file_name="Hazir_Beyan_Ozeti.pdf",
+                mime="application/pdf",
+            )
+            dc2.download_button(
+                T["dl_xlsx"],
+                data=results["workbook_bytes"],
+                file_name="Turkey_Tax_Tracker_processed.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 
     st.divider()
     with st.expander(T["disclaimer_head"], expanded=False):
