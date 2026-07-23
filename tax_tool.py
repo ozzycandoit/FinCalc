@@ -1799,6 +1799,15 @@ def process_asset(ws, ufe_map, lang="TR"):
     for r in range(TX_FIRST, tx_last + 1):
         d = parse_date(ws.cell(r, 3).value)
         typ = str(ws.cell(r, 4).value or "").strip().upper()
+        # The TR column header and README both instruct users to type
+        # ALIM/SATIM, but the engine only ever matched literal BUY/SELL -
+        # every row a TR user typed as instructed was silently skipped
+        # (no error, just a quietly wrong zero-gains result). Normalize
+        # both spellings so TR input actually gets processed.
+        if typ in ("ALIM", "AL"):
+            typ = "BUY"
+        elif typ in ("SATIM", "SAT"):
+            typ = "SELL"
         qty = num(ws.cell(r, 5).value)
         price = num(ws.cell(r, 6).value)
         comm = num(ws.cell(r, 7).value)

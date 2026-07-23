@@ -2,8 +2,15 @@
 tr_tax_dashboard.py
 Turkey Foreign Securities Tax Calculator — web front-end
 
-FREE now. Stripe-ready: set STRIPE_SECRET_KEY and CALC_PRICE_TRY env vars to
-enable paid mode with zero code changes.
+Two tiers:
+  - Quick Check (free): stocks/ETFs only, no options, no Yİ-ÜFE indexation.
+    Fast approximate estimate, on-screen only, no filing-ready PDF.
+  - Full Calculation (paid once STRIPE_SECRET_KEY / CALC_PRICE_TRY are set):
+    the full engine — options, Yİ-ÜFE indexation, GİB Hazır Beyan PDF.
+
+Until STRIPE_SECRET_KEY is configured in Secrets, Full Calculation stays free
+too (PAID_MODE below), so the app is fully usable before monetization is
+switched on.
 """
 
 import io
@@ -16,7 +23,7 @@ import tr_tax_core
 import tr_tax_report
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIG  (all overridable via environment variables)
+# CONFIG  (all overridable via environment variables / Streamlit secrets)
 # ─────────────────────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY  = os.getenv("STRIPE_SECRET_KEY", "")          # blank  = free
 CALC_PRICE_TRY     = int(os.getenv("CALC_PRICE_TRY", "0"))       # kuruş, e.g. 49900 = ₺499
@@ -38,6 +45,44 @@ TR = {
         "**USD ve EUR** cinsinden varlıklar desteklenir. Sonuç **GİB Hazır Beyan** formatında üretilir."
     ),
     "lang_label": "🌐 Dil / Language",
+
+    # ── Tier selection ──────────────────────────────────────────────────────
+    "tier_head": "Nasıl hesaplamak istersiniz?",
+    "tier_free_badge": "ÜCRETSİZ",
+    "tier_free_title": "🆓 Hızlı Kontrol",
+    "tier_free_desc": (
+        "Sadece hisse/ETF alım-satımları için hızlı, yaklaşık kazanç ve vergi tahmini. "
+        "Opsiyon yok, Yİ-ÜFE endekslemesi yok, dosyalanabilir PDF yok — sadece hızlı bir fikir."
+    ),
+    "tier_free_cta": "Ücretsiz Kullan →",
+    "tier_full_badge_priced": "Hesaplama başına {price}",
+    "tier_full_badge_free": "ŞİMDİLİK ÜCRETSİZ",
+    "tier_full_title": "💎 Tam Hesaplama",
+    "tier_full_desc": (
+        "Opsiyonlar dahil, Yİ-ÜFE endekslemesi ile tam FIFO hesaplaması. "
+        "**GİB Hazır Beyan** formatında indirilebilir PDF ve işlenmiş Excel içerir."
+    ),
+    "tier_full_cta": "Tam Hesaplamaya Geç →",
+    "back_to_tiers": "‹ Hesaplama türünü değiştir",
+
+    # ── Quick check tier ─────────────────────────────────────────────────────
+    "quick_title": "🆓 Hızlı Kontrol",
+    "quick_step1_head": "1️⃣ Boş şablonu indirin",
+    "quick_step1_body": "Her satıra bir ALIM veya SATIM işlemi girin. Sadece hisse ve ETF'ler.",
+    "quick_step1_btn": "⬇️ Hızlı_Kontrol_Sablonu.xlsx indir",
+    "quick_step2_head": "2️⃣ Yükleyin ve hesaplayın",
+    "quick_step2_body": "Doldurduğunuz dosyayı yükleyin ve Hesapla butonuna basın.",
+    "quick_upload_label": "Doldurulmuş şablon",
+    "quick_calc_btn": "🧮 Hızlı Hesapla (ücretsiz)",
+    "quick_spinner": "TCMB kurları alınıyor, işlemler hesaplanıyor…",
+    "quick_success": "Hızlı hesaplama tamamlandı ✅",
+    "quick_gain": "Toplam kazanç (TL)",
+    "quick_tax": "Tahmini 2026 gelir vergisi",
+    "quick_instal": "Taksitler (Mart / Temmuz)",
+    "quick_trades": "İşlenen işlem sayısı",
+    "quick_upgrade_head": "Opsiyonlarınız mı var? Kesin, dosyalanabilir bir sonuç mu istiyorsunuz?",
+    "quick_upgrade_body": "Tam Hesaplama; Yİ-ÜFE endekslemesi, opsiyonlar ve indirilebilir GİB Hazır Beyan PDF'i içerir.",
+    "quick_upgrade_btn": "💎 Tam Hesaplamaya Geç",
 
     "step1_head": "1️⃣ Boş çalışma kitabını indirin",
     "step1_body": (
@@ -104,6 +149,44 @@ EN = {
         "Results are produced in **GİB Hazır Beyan** (Turkish tax return) format."
     ),
     "lang_label": "🌐 Dil / Language",
+
+    # ── Tier selection ──────────────────────────────────────────────────────
+    "tier_head": "How would you like to calculate?",
+    "tier_free_badge": "FREE",
+    "tier_free_title": "🆓 Quick Check",
+    "tier_free_desc": (
+        "A fast, approximate gain/tax estimate for stock & ETF trades only. "
+        "No options, no Yİ-ÜFE indexation, no filing-ready PDF — just a quick read."
+    ),
+    "tier_free_cta": "Use for Free →",
+    "tier_full_badge_priced": "{price} per calculation",
+    "tier_full_badge_free": "FREE FOR NOW",
+    "tier_full_title": "💎 Full Calculation",
+    "tier_full_desc": (
+        "Full FIFO calculation with Yİ-ÜFE indexation, including options. "
+        "Includes a downloadable **GİB Hazır Beyan** format PDF and processed Excel."
+    ),
+    "tier_full_cta": "Go to Full Calculation →",
+    "back_to_tiers": "‹ Change calculation type",
+
+    # ── Quick check tier ─────────────────────────────────────────────────────
+    "quick_title": "🆓 Quick Check",
+    "quick_step1_head": "1️⃣ Download the blank template",
+    "quick_step1_body": "Enter one BUY or SELL per row. Stocks & ETFs only.",
+    "quick_step1_btn": "⬇️ Download Quick_Check_Template.xlsx",
+    "quick_step2_head": "2️⃣ Upload and calculate",
+    "quick_step2_body": "Upload your filled template and press Calculate.",
+    "quick_upload_label": "Filled template",
+    "quick_calc_btn": "🧮 Quick Calculate (free)",
+    "quick_spinner": "Fetching TCMB rates, processing trades…",
+    "quick_success": "Quick check complete ✅",
+    "quick_gain": "Total gain (TL)",
+    "quick_tax": "Estimated 2026 income tax",
+    "quick_instal": "Instalments (March / July)",
+    "quick_trades": "Trades processed",
+    "quick_upgrade_head": "Have options? Want a precise, filing-ready result?",
+    "quick_upgrade_body": "Full Calculation adds Yİ-ÜFE indexation, options, and a downloadable GİB Hazır Beyan PDF.",
+    "quick_upgrade_btn": "💎 Go to Full Calculation",
 
     "step1_head": "1️⃣ Download the blank workbook",
     "step1_body": (
@@ -172,13 +255,19 @@ def tl(x):
 
 @st.cache_data(show_spinner=False)
 def get_blank_workbook_bytes(lang="TR"):
-    """Build a fresh blank workbook in memory and return its bytes."""
+    """Build a fresh blank full workbook in memory and return its bytes."""
     import tax_tool as tt
     wb = tt.build_blank_workbook(lang=lang)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
+
+
+@st.cache_data(show_spinner=False)
+def get_quick_template_bytes(lang="TR"):
+    """Blank Quick Check template (free tier)."""
+    return tr_tax_core.build_quick_template_bytes(lang=lang)
 
 
 def create_stripe_checkout(price_try_kurus):
@@ -197,8 +286,30 @@ def create_stripe_checkout(price_try_kurus):
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Turkey Tax Calculator", page_icon="📊", layout="wide")
 
+# Small polish on top of the theme in .streamlit/config.toml: rounder cards,
+# softer buttons. Kept intentionally minimal (no layout-critical CSS) so a
+# future Streamlit version can't silently break the page.
+st.markdown(
+    """
+    <style>
+    div[data-testid="stButton"] > button, div[data-testid="stDownloadButton"] > button {
+        border-radius: 10px;
+        font-weight: 600;
+    }
+    div[data-testid="stMetric"] {
+        background: #F0EEE5;
+        border-radius: 12px;
+        padding: 12px 16px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 if "lang" not in st.session_state:
     st.session_state.lang = "TR"
+if "tier" not in st.session_state:
+    st.session_state.tier = None  # None -> show tier picker; "quick" or "full"
 
 with st.sidebar:
     lang_choice = st.radio("🌐 Dil / Language", ["Türkçe", "English"],
@@ -207,7 +318,8 @@ with st.sidebar:
     st.session_state.lang = "TR" if lang_choice == "Türkçe" else "EN"
     st.divider()
     if st.button("🔄 " + ("Sıfırla" if st.session_state.lang == "TR" else "Reset"), use_container_width=True):
-        for k in ["calc_result", "calc_beyan", "calc_detail", "calc_pdf"]:
+        for k in ["calc_result", "calc_beyan", "calc_detail", "calc_pdf",
+                  "quick_result", "tier"]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -221,175 +333,268 @@ st.markdown(T["hero_sub"])
 st.divider()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 1  — download blank workbook
+# TIER PICKER  — shown until the user chooses Quick Check or Full Calculation
 # ─────────────────────────────────────────────────────────────────────────────
-st.subheader(T["step1_head"])
-st.markdown(T["step1_body"])
-blank = get_blank_workbook_bytes(lang=st.session_state.lang)
-st.download_button(
-    T["step1_btn"],
-    data=blank,
-    file_name="Turkey_Tax_Tracker.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+if st.session_state.tier is None:
+    st.subheader(T["tier_head"])
+    c1, c2 = st.columns(2)
+
+    with c1:
+        with st.container(border=True):
+            st.caption(T["tier_free_badge"])
+            st.markdown(f"### {T['tier_free_title']}")
+            st.write(T["tier_free_desc"])
+            if st.button(T["tier_free_cta"], use_container_width=True, type="secondary"):
+                st.session_state.tier = "quick"
+                st.rerun()
+
+    with c2:
+        with st.container(border=True):
+            if PAID_MODE:
+                st.caption(T["tier_full_badge_priced"].format(price=f"₺{CALC_PRICE_TRY/100:.0f}"))
+            else:
+                st.caption(T["tier_full_badge_free"])
+            st.markdown(f"### {T['tier_full_title']}")
+            st.write(T["tier_full_desc"])
+            if st.button(T["tier_full_cta"], use_container_width=True, type="primary"):
+                st.session_state.tier = "full"
+                st.rerun()
+
+    st.divider()
+    with st.expander(T["disclaimer_head"], expanded=False):
+        st.markdown(T["disclaimer"])
+    st.stop()
+
+# Back-to-picker link, shown on both tiers once chosen
+if st.button(T["back_to_tiers"]):
+    st.session_state.tier = None
+    st.rerun()
 st.divider()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 2  — upload + calculate
+# QUICK CHECK TIER  (free — stocks/ETFs only, no options, no Yİ-ÜFE)
 # ─────────────────────────────────────────────────────────────────────────────
-st.subheader(T["step2_head"])
-st.markdown(T["step2_body"])
+if st.session_state.tier == "quick":
+    st.header(T["quick_title"])
 
-up = st.file_uploader(T["upload_label"], type=["xlsx"])
-
-# EVDS key is server-side only — read from Streamlit secrets or env, never shown in UI
-try:
-    evds_key = st.secrets.get("EVDS_KEY", "") or os.getenv("EVDS_KEY", "")
-except Exception:
-    evds_key = os.getenv("EVDS_KEY", "")
-
-# Paid mode: show payment notice before the button
-if PAID_MODE:
-    st.info(f"{T['payment_head']}: {T['payment_body']} — ₺{CALC_PRICE_TRY/100:.0f}")
-
-calc_label = T["calc_btn_paid"] if PAID_MODE else T["calc_btn_free"]
-go = st.button(calc_label, type="primary", disabled=(up is None))
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CALCULATION  — runs on button click, results persist in session_state
-# ─────────────────────────────────────────────────────────────────────────────
-if go and up is not None:
-    # ── Payment gate (skipped when PAID_MODE is False) ──────────────────────
-    if PAID_MODE:
-        try:
-            client_secret = create_stripe_checkout(CALC_PRICE_TRY)
-            st.session_state["stripe_intent"] = client_secret
-            st.warning(
-                "⚙️ **Stripe integration point.** In production, redirect the user "
-                "to `stripe.com/checkout` here. Set `STRIPE_SECRET_KEY` and "
-                "`CALC_PRICE_TRY` env vars and plug in a success webhook to "
-                "proceed automatically after payment. Skipping payment for now."
-            )
-        except Exception as e:
-            st.error(f"Stripe error: {e}")
-            st.stop()
-
-    with st.spinner(T["spinner"]):
-        try:
-            results = tr_tax_core.calculate_from_workbook(
-                up, evds_key or None, lang=st.session_state.lang
-            )
-            beyan = tr_tax_core.build_gib_beyan(results)
-            detail = tr_tax_core.detailed_transactions(results)
-            pdf = tr_tax_report.build_beyan_pdf(beyan, detail)
-            # Store everything so downloads survive page reruns
-            st.session_state["calc_result"] = results
-            st.session_state["calc_beyan"]  = beyan
-            st.session_state["calc_detail"] = detail
-            st.session_state["calc_pdf"]    = pdf
-        except Exception as e:
-            st.error(f"{T['err']}{e}")
-            st.stop()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RESULTS  — rendered from session_state so downloads never vanish
-# ─────────────────────────────────────────────────────────────────────────────
-if "calc_result" in st.session_state:
-    results = st.session_state["calc_result"]
-    beyan   = st.session_state["calc_beyan"]
-    detail  = st.session_state["calc_detail"]
-    pdf     = st.session_state["calc_pdf"]
-
-    # ── Status bar ──────────────────────────────────────────────────────────
-    badge = {
-        "FINAL from available data.": "✅",
-        "PROVISIONAL - missing YI-UFE affected at least one realised sale.": "⚠️",
-        "INCOMPLETE - do not file until the flagged rows are fixed.": "⛔",
-    }
-    b = badge.get(results["status"], "ℹ️")
-    st.success(T["success"])
-    st.caption(
-        f"{b} {T['status_label']}: {results['status']}  ·  "
-        f"{T['ufe_label']}: {results['ufe_source']}"
-    )
-
-    # ── Key metrics ─────────────────────────────────────────────────────────
-    m1, m2, m3 = st.columns(3)
-    m1.metric(T["matrah"], tl(beyan["tax_base"]))
-    m2.metric(T["tax"], tl(beyan["tax"]))
-    m3.metric(T["instal"],
-              f"{tl(beyan['instalment_1'])} + {tl(beyan['instalment_2'])}")
-
-    # ── Two-tab results ──────────────────────────────────────────────────────
-    tab1, tab2 = st.tabs([T["tab_beyan"], T["tab_detail"]])
-
-    with tab1:
-        # 3.D capital gains
-        cg = beyan["capital_gains"]
-        st.markdown(f"**{T['3d_head']}**")
-        st.table(pd.DataFrame([{
-            T["kaz_turu"]:         f"{cg['code']} — {cg['label']}",
-            T["gayrisafi_tutar"]:  tl(cg["gayrisafi"]),
-            T["gider_indirim"]:    tl(cg["gider_indirim"]),
-            T["safi_kaz"]:         tl(cg["safi"]),
-            T["kesilen"]:          tl(cg["kesilen"]),
-        }]))
-
-        # Per-instrument breakdown
-        if results["lines"]:
-            st.markdown(f"**{'Enstrüman bazında' if T is TR else 'Per instrument'}**")
-            rows = [{
-                T["col_inst"]: ln["name"],
-                "Tür" if T is TR else "Type": ln["kind"],
-                "Döviz" if T is TR else "Ccy": ln["currency"],
-                T["col_gross"]: round(ln["gross"], 2),
-                T["col_taxable"]: round(ln["taxable_raw"], 2),
-                "Flag": ln["flag"],
-            } for ln in results["lines"]]
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    with tab2:
-        if detail:
-            tx_rows = []
-            for t in detail:
-                d = t.get("date")
-                tx_rows.append({
-                    T["col_inst"]:    t.get("asset", ""),
-                    T["col_date"]:    d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d),
-                    T["col_action"]:  t.get("type", ""),
-                    T["col_qty"]:     t.get("qty", ""),
-                    T["col_price"]:   t.get("price", ""),
-                    T["col_tl"]:      round(t["tl_amount"], 2) if t.get("tl_amount") is not None else None,
-                    T["col_gross"]:   round(t["gross"], 2) if t.get("gross") is not None else None,
-                    T["col_taxable"]: round(t["taxable"], 2) if t.get("taxable") is not None else None,
-                    T["col_status"]:  t.get("status", ""),
-                })
-            st.dataframe(pd.DataFrame(tx_rows), use_container_width=True, hide_index=True)
-        else:
-            st.info(T["no_trades"])
-
-    # ── Warnings ─────────────────────────────────────────────────────────────
-    for w in results["warnings"]:
-        st.warning(w)
-
-    # ── Downloads — always visible once calculated ────────────────────────────
-    st.divider()
-    dc1, dc2 = st.columns(2)
-    dc1.download_button(
-        T["dl_pdf"], data=pdf,
-        file_name="Hazir_Beyan_Ozeti.pdf",
-        mime="application/pdf",
-    )
-    dc2.download_button(
-        T["dl_xlsx"],
-        data=results["workbook_bytes"],
-        file_name="Turkey_Tax_Tracker_processed.xlsx",
+    st.subheader(T["quick_step1_head"])
+    st.markdown(T["quick_step1_body"])
+    quick_blank = get_quick_template_bytes(lang=st.session_state.lang)
+    st.download_button(
+        T["quick_step1_btn"],
+        data=quick_blank,
+        file_name="Quick_Check_Template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+    st.divider()
+
+    st.subheader(T["quick_step2_head"])
+    st.markdown(T["quick_step2_body"])
+    quick_up = st.file_uploader(T["quick_upload_label"], type=["xlsx"], key="quick_uploader")
+    quick_go = st.button(T["quick_calc_btn"], type="primary", disabled=(quick_up is None))
+
+    if quick_go and quick_up is not None:
+        with st.spinner(T["quick_spinner"]):
+            try:
+                st.session_state["quick_result"] = tr_tax_core.calculate_turkish_taxes(quick_up)
+            except Exception as e:
+                st.error(f"{T['err']}{e}")
+                st.stop()
+
+    if "quick_result" in st.session_state:
+        qr = st.session_state["quick_result"]
+        st.success(T["quick_success"])
+        st.caption(f"{T['status_label']}: {qr['status']}")
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric(T["quick_gain"], tl(qr["total_gains"]))
+        m2.metric(T["quick_tax"], tl(qr["estimated_tax"]))
+        m3.metric(T["quick_instal"],
+                  f"{tl(qr['instalment_1'])} + {tl(qr['instalment_2'])}")
+        st.caption(f"{T['quick_trades']}: {qr['trades_processed']}")
+
+        for w in qr.get("warnings", []):
+            st.warning(w)
+
+        st.divider()
+        with st.container(border=True):
+            st.markdown(f"**{T['quick_upgrade_head']}**")
+            st.write(T["quick_upgrade_body"])
+            if st.button(T["quick_upgrade_btn"], type="primary"):
+                st.session_state.tier = "full"
+                for k in ["quick_result"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+    st.divider()
+    with st.expander(T["disclaimer_head"], expanded=False):
+        st.markdown(T["disclaimer"])
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Disclaimer  (always visible)
+# FULL CALCULATION TIER  (paid once STRIPE_SECRET_KEY/CALC_PRICE_TRY are set)
 # ─────────────────────────────────────────────────────────────────────────────
-st.divider()
-with st.expander(T["disclaimer_head"], expanded=False):
-    st.markdown(T["disclaimer"])
+elif st.session_state.tier == "full":
+    st.header(T["tier_full_title"])
+
+    # ── STEP 1 — download blank workbook ────────────────────────────────────
+    st.subheader(T["step1_head"])
+    st.markdown(T["step1_body"])
+    blank = get_blank_workbook_bytes(lang=st.session_state.lang)
+    st.download_button(
+        T["step1_btn"],
+        data=blank,
+        file_name="Turkey_Tax_Tracker.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    st.divider()
+
+    # ── STEP 2 — upload + calculate ─────────────────────────────────────────
+    st.subheader(T["step2_head"])
+    st.markdown(T["step2_body"])
+
+    up = st.file_uploader(T["upload_label"], type=["xlsx"])
+
+    # EVDS key is server-side only — read from Streamlit secrets or env, never shown in UI
+    try:
+        evds_key = st.secrets.get("EVDS_KEY", "") or os.getenv("EVDS_KEY", "")
+    except Exception:
+        evds_key = os.getenv("EVDS_KEY", "")
+
+    # Paid mode: show payment notice before the button
+    if PAID_MODE:
+        st.info(f"{T['payment_head']}: {T['payment_body']} — ₺{CALC_PRICE_TRY/100:.0f}")
+
+    calc_label = T["calc_btn_paid"] if PAID_MODE else T["calc_btn_free"]
+    go = st.button(calc_label, type="primary", disabled=(up is None))
+
+    # ── CALCULATION  — runs on button click, results persist in session_state
+    if go and up is not None:
+        # ── Payment gate (skipped when PAID_MODE is False) ──────────────────
+        if PAID_MODE:
+            try:
+                client_secret = create_stripe_checkout(CALC_PRICE_TRY)
+                st.session_state["stripe_intent"] = client_secret
+                st.warning(
+                    "⚙️ **Stripe integration point.** In production, redirect the user "
+                    "to `stripe.com/checkout` here. Set `STRIPE_SECRET_KEY` and "
+                    "`CALC_PRICE_TRY` env vars and plug in a success webhook to "
+                    "proceed automatically after payment. Skipping payment for now."
+                )
+            except Exception as e:
+                st.error(f"Stripe error: {e}")
+                st.stop()
+
+        with st.spinner(T["spinner"]):
+            try:
+                results = tr_tax_core.calculate_from_workbook(
+                    up, evds_key or None, lang=st.session_state.lang
+                )
+                beyan = tr_tax_core.build_gib_beyan(results)
+                detail = tr_tax_core.detailed_transactions(results)
+                pdf = tr_tax_report.build_beyan_pdf(beyan, detail)
+                # Store everything so downloads survive page reruns
+                st.session_state["calc_result"] = results
+                st.session_state["calc_beyan"]  = beyan
+                st.session_state["calc_detail"] = detail
+                st.session_state["calc_pdf"]    = pdf
+            except Exception as e:
+                st.error(f"{T['err']}{e}")
+                st.stop()
+
+    # ── RESULTS  — rendered from session_state so downloads never vanish ────
+    if "calc_result" in st.session_state:
+        results = st.session_state["calc_result"]
+        beyan   = st.session_state["calc_beyan"]
+        detail  = st.session_state["calc_detail"]
+        pdf     = st.session_state["calc_pdf"]
+
+        # ── Status bar ──────────────────────────────────────────────────────
+        badge = {
+            "FINAL from available data.": "✅",
+            "PROVISIONAL - missing YI-UFE affected at least one realised sale.": "⚠️",
+            "INCOMPLETE - do not file until the flagged rows are fixed.": "⛔",
+        }
+        b = badge.get(results["status"], "ℹ️")
+        st.success(T["success"])
+        st.caption(
+            f"{b} {T['status_label']}: {results['status']}  ·  "
+            f"{T['ufe_label']}: {results['ufe_source']}"
+        )
+
+        # ── Key metrics ─────────────────────────────────────────────────────
+        m1, m2, m3 = st.columns(3)
+        m1.metric(T["matrah"], tl(beyan["tax_base"]))
+        m2.metric(T["tax"], tl(beyan["tax"]))
+        m3.metric(T["instal"],
+                  f"{tl(beyan['instalment_1'])} + {tl(beyan['instalment_2'])}")
+
+        # ── Two-tab results ──────────────────────────────────────────────────
+        tab1, tab2 = st.tabs([T["tab_beyan"], T["tab_detail"]])
+
+        with tab1:
+            # 3.D capital gains
+            cg = beyan["capital_gains"]
+            st.markdown(f"**{T['3d_head']}**")
+            st.table(pd.DataFrame([{
+                T["kaz_turu"]:         f"{cg['code']} — {cg['label']}",
+                T["gayrisafi_tutar"]:  tl(cg["gayrisafi"]),
+                T["gider_indirim"]:    tl(cg["gider_indirim"]),
+                T["safi_kaz"]:         tl(cg["safi"]),
+                T["kesilen"]:          tl(cg["kesilen"]),
+            }]))
+
+            # Per-instrument breakdown
+            if results["lines"]:
+                st.markdown(f"**{'Enstrüman bazında' if T is TR else 'Per instrument'}**")
+                rows = [{
+                    T["col_inst"]: ln["name"],
+                    "Tür" if T is TR else "Type": ln["kind"],
+                    "Döviz" if T is TR else "Ccy": ln["currency"],
+                    T["col_gross"]: round(ln["gross"], 2),
+                    T["col_taxable"]: round(ln["taxable_raw"], 2),
+                    "Flag": ln["flag"],
+                } for ln in results["lines"]]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+        with tab2:
+            if detail:
+                tx_rows = []
+                for t in detail:
+                    d = t.get("date")
+                    tx_rows.append({
+                        T["col_inst"]:    t.get("asset", ""),
+                        T["col_date"]:    d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d),
+                        T["col_action"]:  t.get("type", ""),
+                        T["col_qty"]:     t.get("qty", ""),
+                        T["col_price"]:   t.get("price", ""),
+                        T["col_tl"]:      round(t["tl_amount"], 2) if t.get("tl_amount") is not None else None,
+                        T["col_gross"]:   round(t["gross"], 2) if t.get("gross") is not None else None,
+                        T["col_taxable"]: round(t["taxable"], 2) if t.get("taxable") is not None else None,
+                        T["col_status"]:  t.get("status", ""),
+                    })
+                st.dataframe(pd.DataFrame(tx_rows), use_container_width=True, hide_index=True)
+            else:
+                st.info(T["no_trades"])
+
+        # ── Warnings ─────────────────────────────────────────────────────────
+        for w in results["warnings"]:
+            st.warning(w)
+
+        # ── Downloads — always visible once calculated ────────────────────────
+        st.divider()
+        dc1, dc2 = st.columns(2)
+        dc1.download_button(
+            T["dl_pdf"], data=pdf,
+            file_name="Hazir_Beyan_Ozeti.pdf",
+            mime="application/pdf",
+        )
+        dc2.download_button(
+            T["dl_xlsx"],
+            data=results["workbook_bytes"],
+            file_name="Turkey_Tax_Tracker_processed.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    st.divider()
+    with st.expander(T["disclaimer_head"], expanded=False):
+        st.markdown(T["disclaimer"])

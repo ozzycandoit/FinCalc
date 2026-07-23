@@ -280,6 +280,72 @@ def _num(v):
         return 0.0
 
 
+def build_quick_template_bytes(lang="TR"):
+    """Blank one-sheet flat workbook for the free Quick Check tier.
+    Much simpler than the full Turkey_Tax_Tracker.xlsx: one row per trade,
+    no options, no Yi-UFE. Returns xlsx bytes ready for st.download_button."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "QUICK_CHECK"
+    ws.sheet_view.showGridLines = False
+
+    if lang == "TR":
+        title = "HIZLI KONTROL - Hisse / ETF İşlemleri (opsiyon yok, Yİ-ÜFE yok)"
+        headers = ["Tarih", "Varlık", "İşlem (ALIM/SATIM)", "Adet", "Fiyat",
+                   "Döviz (USD/EUR)", "Komisyon (opsiyonel)"]
+        note = ("Her satıra bir ALIM veya SATIM işlemi girin. Tarih: GG.AA.YYYY veya "
+                "YYYY-AA-GG. Bu, hızlı ve yaklaşık bir tahmindir; opsiyonlar ve "
+                "Yİ-ÜFE endekslemesi içermez. Kesin/dosyalanabilir sonuç için Tam "
+                "Hesaplama'yı kullanın.")
+    else:
+        title = "QUICK CHECK - Stock / ETF Trades (no options, no Yİ-ÜFE)"
+        headers = ["Date", "Asset", "Action (BUY/SELL)", "Quantity", "Price",
+                   "Currency (USD/EUR)", "Commission (optional)"]
+        note = ("Enter one BUY or SELL per row. Date: DD.MM.YYYY or YYYY-MM-DD. "
+                "This is a fast, approximate estimate only - no options, no "
+                "Yİ-ÜFE indexation. Use Full Calculation for a filing-ready result.")
+
+    ws.merge_cells("A1:G1")
+    t = ws["A1"]
+    t.value = title
+    t.font = Font(name="Arial", size=12, bold=True, color="FFFFFF")
+    t.fill = PatternFill("solid", fgColor="D97757")
+    t.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells("A2:G2")
+    n = ws["A2"]
+    n.value = note
+    n.font = Font(name="Arial", size=9, italic=True, color="6B6455")
+    n.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    ws.row_dimensions[2].height = 32
+
+    widths = [14, 14, 18, 10, 12, 16, 16]
+    for col, w in zip("ABCDEFG", widths):
+        ws.column_dimensions[col].width = w
+
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(3, ci)
+        c.value = h
+        c.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="3D3929")
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[3].height = 30
+
+    for r in range(4, 54):
+        for c in range(1, 8):
+            ws.cell(r, c).fill = PatternFill("solid", fgColor="FAF9F5")
+    ws.freeze_panes = "A4"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def calculate_turkish_taxes(uploaded_file):
     """Quick per-asset FIFO on a flat statement. Columns:
     Date | Asset | Action(BUY/SELL) | Quantity | Price | [Currency] | [Commission]
@@ -295,7 +361,7 @@ def calculate_turkish_taxes(uploaded_file):
         first = all_rows[0]
         d0 = parse_flexible_date(first[0]) if len(first) > 0 else None
         a0 = (str(first[2]).strip().upper() if len(first) > 2 and first[2] else "")
-        if d0 is None and a0 not in ("BUY", "SELL"):
+        if d0 is None and a0 not in ("BUY", "SELL", "ALIM", "AL", "SATIM", "SAT"):
             start = 1
 
     for row in all_rows[start:]:
@@ -307,6 +373,10 @@ def calculate_turkish_taxes(uploaded_file):
             continue
         asset = (str(row[1]).strip().upper() if len(row) > 1 and row[1] else "UNKNOWN")
         action = (str(row[2]).strip().upper() if len(row) > 2 and row[2] else "")
+        if action in ("ALIM", "AL"):
+            action = "BUY"
+        elif action in ("SATIM", "SAT"):
+            action = "SELL"
         if action not in ("BUY", "SELL"):
             continue
         qty = _num(row[3]) if len(row) > 3 else 0.0
