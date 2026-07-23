@@ -283,62 +283,132 @@ def _num(v):
 def build_quick_template_bytes(lang="TR"):
     """Blank one-sheet flat workbook for the free Quick Check tier.
     Much simpler than the full Turkey_Tax_Tracker.xlsx: one row per trade,
-    no options, no Yi-UFE. Returns xlsx bytes ready for st.download_button."""
+    no options, no Yi-UFE. Returns xlsx bytes ready for st.download_button.
+
+    Styled to match the app's editorial look (Claude palette): a title band,
+    a real instruction note, a bordered header row, a grayed-out example row,
+    dropdown validation on the Action/Currency columns so users can't typo
+    them, and light borders on every data cell so it reads as a table even
+    with gridlines hidden."""
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     ws = wb.active
     ws.title = "QUICK_CHECK"
     ws.sheet_view.showGridLines = False
 
-    if lang == "TR":
-        title = "HIZLI KONTROL - Hisse / ETF İşlemleri (opsiyon yok, Yİ-ÜFE yok)"
-        headers = ["Tarih", "Varlık", "İşlem (ALIM/SATIM)", "Adet", "Fiyat",
-                   "Döviz (USD/EUR)", "Komisyon (opsiyonel)"]
-        note = ("Her satıra bir ALIM veya SATIM işlemi girin. Tarih: GG.AA.YYYY veya "
-                "YYYY-AA-GG. Bu, hızlı ve yaklaşık bir tahmindir; opsiyonlar ve "
-                "Yİ-ÜFE endekslemesi içermez. Kesin/dosyalanabilir sonuç için Tam "
-                "Hesaplama'yı kullanın.")
-    else:
-        title = "QUICK CHECK - Stock / ETF Trades (no options, no Yİ-ÜFE)"
-        headers = ["Date", "Asset", "Action (BUY/SELL)", "Quantity", "Price",
-                   "Currency (USD/EUR)", "Commission (optional)"]
-        note = ("Enter one BUY or SELL per row. Date: DD.MM.YYYY or YYYY-MM-DD. "
-                "This is a fast, approximate estimate only - no options, no "
-                "Yİ-ÜFE indexation. Use Full Calculation for a filing-ready result.")
+    ACCENT = "D97757"   # Claude terracotta
+    INK    = "3D3929"   # Claude dark text
+    CREAM  = "FAF9F5"   # Claude background
+    LINE   = "E5E1D6"   # hairline border
+    MUTED  = "8A8578"   # muted gray for hints/example row
 
+    if lang == "TR":
+        title = "HIZLI KONTROL — Hisse / ETF İşlemleri"
+        subtitle = "Opsiyon yok · Yİ-ÜFE yok · sadece hızlı bir tahmin"
+        headers = ["Tarih", "Varlık", "İşlem", "Adet", "Fiyat",
+                   "Döviz", "Komisyon (ops.)"]
+        note = ("Her satıra bir ALIM veya SATIM işlemi girin. Tarih: GG.AA.YYYY veya "
+                "YYYY-AA-GG. 2. satır bir örnektir — silip kendi verinizle değiştirin. "
+                "İşlem ve Döviz hücrelerinde açılır listeden seçim yapabilirsiniz.")
+        action_choices = ["ALIM", "SATIM"]
+        example = ["15.01.2025", "AAPL", "ALIM", 10, 150, "USD", 1]
+    else:
+        title = "QUICK CHECK — Stock / ETF Trades"
+        subtitle = "No options · no Yİ-ÜFE indexation · a fast estimate only"
+        headers = ["Date", "Asset", "Action", "Quantity", "Price",
+                   "Currency", "Commission (opt.)"]
+        note = ("Enter one BUY or SELL per row. Date: DD.MM.YYYY or YYYY-MM-DD. "
+                "Row 2 is an example — delete it and replace with your own data. "
+                "Use the dropdowns in the Action and Currency cells.")
+        action_choices = ["BUY", "SELL"]
+        example = ["15.01.2025", "AAPL", "BUY", 10, 150, "USD", 1]
+
+    thin = Side(style="thin", color=LINE)
+    cell_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # ── Title band ───────────────────────────────────────────────────────────
     ws.merge_cells("A1:G1")
     t = ws["A1"]
     t.value = title
-    t.font = Font(name="Arial", size=12, bold=True, color="FFFFFF")
-    t.fill = PatternFill("solid", fgColor="D97757")
-    t.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 26
+    t.font = Font(name="Georgia", size=14, bold=True, color="FFFFFF")
+    t.fill = PatternFill("solid", fgColor=ACCENT)
+    t.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 30
 
     ws.merge_cells("A2:G2")
-    n = ws["A2"]
-    n.value = note
-    n.font = Font(name="Arial", size=9, italic=True, color="6B6455")
-    n.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    ws.row_dimensions[2].height = 32
+    s = ws["A2"]
+    s.value = subtitle
+    s.font = Font(name="Arial", size=10, italic=True, color="FFFFFF")
+    s.fill = PatternFill("solid", fgColor=ACCENT)
+    s.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 20
 
-    widths = [14, 14, 18, 10, 12, 16, 16]
+    # ── Instruction note ─────────────────────────────────────────────────────
+    ws.merge_cells("A3:G4")
+    n = ws["A3"]
+    n.value = note
+    n.font = Font(name="Arial", size=9, color=MUTED)
+    n.fill = PatternFill("solid", fgColor=CREAM)
+    n.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True, indent=1)
+    ws.row_dimensions[3].height = 18
+    ws.row_dimensions[4].height = 18
+
+    widths = [14, 14, 12, 10, 12, 10, 16]
     for col, w in zip("ABCDEFG", widths):
         ws.column_dimensions[col].width = w
 
+    # ── Header row ───────────────────────────────────────────────────────────
+    header_row = 5
     for ci, h in enumerate(headers, 1):
-        c = ws.cell(3, ci)
+        c = ws.cell(header_row, ci)
         c.value = h
         c.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="3D3929")
+        c.fill = PatternFill("solid", fgColor=INK)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.row_dimensions[3].height = 30
+        c.border = cell_border
+    ws.row_dimensions[header_row].height = 24
 
-    for r in range(4, 54):
+    # ── Example row (grayed out, italic — a visible sample, not real data) ──
+    example_row = header_row + 1
+    for ci, v in enumerate(example, 1):
+        c = ws.cell(example_row, ci)
+        c.value = v
+        c.font = Font(name="Arial", size=10, italic=True, color=MUTED)
+        c.fill = PatternFill("solid", fgColor="F0EEE5")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = cell_border
+
+    # ── Blank data rows with a visible grid (borders, not just a flat fill) ─
+    first_data_row = example_row + 1
+    last_data_row = first_data_row + 60
+    for r in range(first_data_row, last_data_row):
         for c in range(1, 8):
-            ws.cell(r, c).fill = PatternFill("solid", fgColor="FAF9F5")
-    ws.freeze_panes = "A4"
+            cell = ws.cell(r, c)
+            cell.fill = PatternFill("solid", fgColor=CREAM)
+            cell.border = cell_border
+        ws.cell(r, 4).number_format = "0.####"     # Adet / Quantity
+        ws.cell(r, 5).number_format = "#,##0.00"   # Fiyat / Price
+        ws.cell(r, 7).number_format = "#,##0.00"   # Komisyon / Commission
+
+    # ── Dropdown validation: Action column, Currency column ─────────────────
+    dv_action = DataValidation(type="list", formula1=f'"{",".join(action_choices)}"',
+                                allow_blank=True, showDropDown=False)
+    dv_action.error = "Please choose a value from the dropdown."
+    dv_action.errorTitle = "Invalid entry"
+    ws.add_data_validation(dv_action)
+    dv_action.add(f"C{example_row}:C{last_data_row - 1}")
+
+    dv_ccy = DataValidation(type="list", formula1='"USD,EUR"',
+                             allow_blank=True, showDropDown=False)
+    ws.add_data_validation(dv_ccy)
+    dv_ccy.add(f"F{example_row}:F{last_data_row - 1}")
+
+    ws.freeze_panes = f"A{first_data_row}"
+    ws.auto_filter.ref = f"A{header_row}:G{header_row}"
 
     buf = io.BytesIO()
     wb.save(buf)

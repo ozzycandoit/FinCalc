@@ -80,7 +80,7 @@ TR = {
     "quick_tax": "Tahmini 2026 gelir vergisi",
     "quick_instal": "Taksitler (Mart / Temmuz)",
     "quick_trades": "İşlenen işlem sayısı",
-    "quick_upgrade_head": "Opsiyonlarınız mı var? Kesin, dosyalanabilir bir sonuç mu istiyorsunuz?",
+    "quick_upgrade_head": "Opsiyonlarınız mı var? Kesin ve dosyalanabilir bir sonuç mu istiyorsunuz?",
     "quick_upgrade_body": "Tam Hesaplama; Yİ-ÜFE endekslemesi, opsiyonlar ve indirilebilir GİB Hazır Beyan PDF'i içerir.",
     "quick_upgrade_btn": "💎 Tam Hesaplamaya Geç",
 
@@ -286,25 +286,135 @@ def create_stripe_checkout(price_try_kurus):
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Turkey Tax Calculator", page_icon="📊", layout="wide")
 
-# Small polish on top of the theme in .streamlit/config.toml: rounder cards,
-# softer buttons. Kept intentionally minimal (no layout-critical CSS) so a
+# Editorial "Classical" look (matches the app's Claude-design mockup):
+# serif headings, small uppercase kicker labels, outlined terracotta buttons,
+# a numbered step indicator, and stat rows with a hairline rule instead of a
+# filled tile. Kept as CSS only (no layout-critical HTML swapped in) so a
 # future Streamlit version can't silently break the page.
 st.markdown(
     """
     <style>
-    div[data-testid="stButton"] > button, div[data-testid="stDownloadButton"] > button {
-        border-radius: 10px;
-        font-weight: 600;
+    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600&display=swap');
+
+    h1, h2, h3, [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stMarkdownContainer"] h2, [data-testid="stMarkdownContainer"] h3 {
+        font-family: 'Source Serif 4', Georgia, serif !important;
+        font-weight: 600 !important;
+        color: #3D3929 !important;
+        letter-spacing: -0.01em;
     }
-    div[data-testid="stMetric"] {
+
+    /* Small uppercase kicker label, used above step/section headings */
+    .eyebrow {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #D97757;
+        margin: 0 0 2px 0;
+    }
+
+    /* Status / tier badge pill */
+    .badge-pill {
+        display: inline-block;
         background: #F0EEE5;
-        border-radius: 12px;
-        padding: 12px 16px;
+        color: #B85C38;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 4px 12px;
+        border-radius: 20px;
+        margin-bottom: 8px;
+    }
+
+    /* Numbered step indicator (Trade -> Exemptions -> Result style) */
+    .step-wizard { display: flex; align-items: center; margin: 10px 0 22px 0; font-family: 'Inter', sans-serif; }
+    .step-wizard .step { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .step-wizard .circle {
+        width: 24px; height: 24px; border-radius: 50%;
+        border: 1.5px solid #D8D4C8; color: #8A8578;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
+    }
+    .step-wizard .circle.active { border-color: #D97757; color: #D97757; }
+    .step-wizard .circle.done { background: #D97757; border-color: #D97757; color: #FAF9F5; }
+    .step-wizard .label { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: #8A8578; }
+    .step-wizard .label.active { color: #D97757; font-weight: 700; }
+    .step-wizard .line { flex: 1; height: 1px; background: #E5E1D6; min-width: 20px; margin: 0 10px; }
+
+    /* Outlined buttons instead of solid fills, to match the mockup */
+    div[data-testid="stButton"] > button, div[data-testid="stDownloadButton"] > button {
+        border-radius: 8px;
+        font-weight: 600;
+        border: 1.5px solid #D97757;
+        background: transparent;
+        color: #B85C38;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+    div[data-testid="stButton"] > button:hover, div[data-testid="stDownloadButton"] > button:hover {
+        background: #D97757;
+        color: #FFFFFF;
+        border-color: #D97757;
+    }
+    div[data-testid="stButton"] > button[kind="secondary"] {
+        border-color: #D8D4C8;
+        color: #3D3929;
+    }
+    div[data-testid="stButton"] > button[kind="secondary"]:hover {
+        background: #F0EEE5;
+        color: #3D3929;
+        border-color: #D8D4C8;
+    }
+
+    /* Stat rows: hairline rule + serif number, closer to the mockup's RESULT panel */
+    div[data-testid="stMetric"] {
+        background: transparent;
+        border-top: 1px solid #E5E1D6;
+        border-radius: 0;
+        padding: 10px 4px 0 4px;
+    }
+    div[data-testid="stMetricLabel"] p {
+        font-family: 'Inter', sans-serif !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.68rem !important;
+        color: #8A8578 !important;
+    }
+    div[data-testid="stMetricValue"] {
+        font-family: 'Source Serif 4', Georgia, serif !important;
+        color: #3D3929 !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def eyebrow(text: str):
+    st.markdown(f'<div class="eyebrow">{text}</div>', unsafe_allow_html=True)
+
+
+def badge_pill(text: str):
+    st.markdown(f'<span class="badge-pill">{text}</span>', unsafe_allow_html=True)
+
+
+def step_indicator(labels, current_index: int):
+    """Numbered circle-and-line step tracker, e.g. labels=['Download','Calculate','Result']."""
+    parts = ['<div class="step-wizard">']
+    for i, label in enumerate(labels):
+        state = "done" if i < current_index else ("active" if i == current_index else "")
+        label_state = "active" if i == current_index else ""
+        parts.append(
+            f'<div class="step"><div class="circle {state}">{i + 1}</div>'
+            f'<div class="label {label_state}">{label}</div></div>'
+        )
+        if i < len(labels) - 1:
+            parts.append('<div class="line"></div>')
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 if "lang" not in st.session_state:
     st.session_state.lang = "TR"
@@ -341,7 +451,7 @@ if st.session_state.tier is None:
 
     with c1:
         with st.container(border=True):
-            st.caption(T["tier_free_badge"])
+            badge_pill(T["tier_free_badge"])
             st.markdown(f"### {T['tier_free_title']}")
             st.write(T["tier_free_desc"])
             if st.button(T["tier_free_cta"], use_container_width=True, type="secondary"):
@@ -351,9 +461,9 @@ if st.session_state.tier is None:
     with c2:
         with st.container(border=True):
             if PAID_MODE:
-                st.caption(T["tier_full_badge_priced"].format(price=f"₺{CALC_PRICE_TRY/100:.0f}"))
+                badge_pill(T["tier_full_badge_priced"].format(price=f"₺{CALC_PRICE_TRY/100:.0f}"))
             else:
-                st.caption(T["tier_full_badge_free"])
+                badge_pill(T["tier_full_badge_free"])
             st.markdown(f"### {T['tier_full_title']}")
             st.write(T["tier_full_desc"])
             if st.button(T["tier_full_cta"], use_container_width=True, type="primary"):
@@ -377,6 +487,11 @@ st.divider()
 if st.session_state.tier == "quick":
     st.header(T["quick_title"])
 
+    _quick_step_labels = ["Şablon", "Hesapla", "Sonuç"] if T is TR else ["Template", "Calculate", "Result"]
+    _quick_idx = 2 if "quick_result" in st.session_state else (1 if st.session_state.get("quick_uploader") is not None else 0)
+    step_indicator(_quick_step_labels, _quick_idx)
+
+    eyebrow(("ADIM 1 / 2" if T is TR else "STEP 1 OF 2"))
     st.subheader(T["quick_step1_head"])
     st.markdown(T["quick_step1_body"])
     quick_blank = get_quick_template_bytes(lang=st.session_state.lang)
@@ -388,6 +503,7 @@ if st.session_state.tier == "quick":
     )
     st.divider()
 
+    eyebrow(("ADIM 2 / 2" if T is TR else "STEP 2 OF 2"))
     st.subheader(T["quick_step2_head"])
     st.markdown(T["quick_step2_body"])
     quick_up = st.file_uploader(T["quick_upload_label"], type=["xlsx"], key="quick_uploader")
@@ -404,7 +520,7 @@ if st.session_state.tier == "quick":
     if "quick_result" in st.session_state:
         qr = st.session_state["quick_result"]
         st.success(T["quick_success"])
-        st.caption(f"{T['status_label']}: {qr['status']}")
+        badge_pill(f"{T['status_label']}: {qr['status']}")
 
         m1, m2, m3 = st.columns(3)
         m1.metric(T["quick_gain"], tl(qr["total_gains"]))
@@ -436,7 +552,12 @@ if st.session_state.tier == "quick":
 elif st.session_state.tier == "full":
     st.header(T["tier_full_title"])
 
+    _full_step_labels = ["Şablon", "Hesapla", "Sonuç"] if T is TR else ["Template", "Calculate", "Result"]
+    _full_idx = 2 if "calc_result" in st.session_state else (1 if st.session_state.get("full_uploader") is not None else 0)
+    step_indicator(_full_step_labels, _full_idx)
+
     # ── STEP 1 — download blank workbook ────────────────────────────────────
+    eyebrow(("ADIM 1 / 2" if T is TR else "STEP 1 OF 2"))
     st.subheader(T["step1_head"])
     st.markdown(T["step1_body"])
     blank = get_blank_workbook_bytes(lang=st.session_state.lang)
@@ -449,10 +570,11 @@ elif st.session_state.tier == "full":
     st.divider()
 
     # ── STEP 2 — upload + calculate ─────────────────────────────────────────
+    eyebrow(("ADIM 2 / 2" if T is TR else "STEP 2 OF 2"))
     st.subheader(T["step2_head"])
     st.markdown(T["step2_body"])
 
-    up = st.file_uploader(T["upload_label"], type=["xlsx"])
+    up = st.file_uploader(T["upload_label"], type=["xlsx"], key="full_uploader")
 
     # EVDS key is server-side only — read from Streamlit secrets or env, never shown in UI
     try:
@@ -516,7 +638,7 @@ elif st.session_state.tier == "full":
         }
         b = badge.get(results["status"], "ℹ️")
         st.success(T["success"])
-        st.caption(
+        badge_pill(
             f"{b} {T['status_label']}: {results['status']}  ·  "
             f"{T['ufe_label']}: {results['ufe_source']}"
         )
